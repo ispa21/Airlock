@@ -5,6 +5,7 @@ import type {
   PolicyUpdate,
   ProfileList,
   Progress,
+  SanitizeResult,
   ScanResult,
 } from "./types";
 
@@ -32,6 +33,10 @@ export interface Platform {
   setProfile(scanId: string, profileId: string): Promise<PolicyUpdate>;
   /** Change actions for findings; `acknowledgeRisk` is needed to keep a critical one. */
   override(scanId: string, overrides: Override[], acknowledgeRisk?: boolean): Promise<PolicyUpdate>;
+  /** Write the protected copy (in Airlock's private work folder). Cancellable by `tag`. */
+  sanitize(scanId: string, tag: string, onProgress: (progress: Progress) => void): Promise<SanitizeResult>;
+  /** Delete a protected copy that is no longer wanted. */
+  discardCopy(artifactId: string): Promise<void>;
   /** Ask the engine to forget a scan's text and findings. */
   discard(scanId: string): Promise<void>;
   /** Cancel the scan started with `tag`; it then rejects with kind "cancelled". */

@@ -25,6 +25,11 @@ const ALLOWED_METHODS: &[&str] = &[
     "profiles.update",
     "profiles.delete",
     "profiles.set_default",
+    "sanitize.run",
+    "sanitize.discard",
+    "vault.restore",
+    "vault.forget",
+    "vault.status",
     "rules.list",
     "rules.create",
     "rules.update",
@@ -40,6 +45,8 @@ fn timeout_for(method: &str) -> Duration {
         "document.extract" => Duration::from_secs(1_000),
         // Extraction (≤ 15 min, enforced by the engine) plus detection.
         "scan.start" => Duration::from_secs(1_500),
+        // The sanitize worker has the same 15-minute limit as extraction.
+        "sanitize.run" => Duration::from_secs(1_000),
         _ => Duration::from_secs(10),
     }
 }
@@ -116,6 +123,8 @@ mod tests {
         assert!(ALLOWED_METHODS.contains(&"rules.create"));
         assert!(ALLOWED_METHODS.contains(&"scan.override"));
         assert!(ALLOWED_METHODS.contains(&"profiles.list"));
+        assert!(ALLOWED_METHODS.contains(&"sanitize.run"));
+        assert!(timeout_for("sanitize.run") > timeout_for("system.health"));
         assert!(timeout_for("scan.start") > timeout_for("document.extract"));
     }
 

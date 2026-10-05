@@ -12,6 +12,7 @@ import {
   type PolicyUpdate,
   type ProfileList,
   type Progress,
+  type SanitizeResult,
   type ScanResult,
 } from "./types";
 
@@ -26,6 +27,24 @@ async function call<T>(method: string, params: Record<string, unknown> = {}, tag
 interface ProgressNotification {
   method?: string;
   params?: { tag?: string; stage?: string; done?: number; total?: number };
+}
+
+async function withProgress<T>(
+  tag: string,
+  onProgress: (progress: Progress) => void,
+  run: () => Promise<T>,
+): Promise<T> {
+  const unlisten = await listen<ProgressNotification>("engine://notification", (event) => {
+    const params = event.payload.params;
+    if (event.payload.method === "$/progress" && params?.tag === tag) {
+      onProgress({ stage: params.stage ?? "", done: params.done ?? 0, total: params.total ?? 0 });
+    }
+  });
+  try {
+    return await run();
+  } finally {
+    unlisten();
+  }
 }
 
 export const SUPPORTED_EXTENSIONS = [
@@ -51,18 +70,16 @@ export const tauriPlatform: Platform = {
     return call<InspectResult>("document.inspect", { path });
   },
 
-  async scan(path: string, profileId: string, tag: string, onProgress: (progress: Progress) => void) {
-    const unlisten = await listen<ProgressNotification>("engine://notification", (event) => {
-      const params = event.payload.params;
-      if (event.payload.method === "$/progress" && params?.tag === tag) {
-        onProgress({ stage: params.stage ?? "", done: params.done ?? 0, total: params.total ?? 0 });
-      }
-    });
-    try {
-      return await call<ScanResult>("scan.start", { path, profile_id: profileId }, tag);
-    } finally {
-      unlisten();
-    }
+  scan(path: string, profileId: string, tag: string, onProgress: (progress: Progress) => void) {
+    return withProgress(tag, onProgress, () => call<ScanResult>("scan.start", { path, profile_id: profileId }, tag));
+  },
+
+  sanitize(scanId: string, tag: string, onProgress: (progress: Progress) => void) {
+    return withProgress(tag, onProgress, () => call<SanitizeResult>("sanitize.run", { scan_id: scanId }, tag));
+  },
+
+  async discardCopy(artifactId: string) {
+    await call<{ ok: boolean }>("sanitize.discard", { artifact_id: artifactId });
   },
 
   listProfiles() {

@@ -74,7 +74,8 @@ def extract_bytes(
     return ctx.build(format_id)
 
 
-def _embedded_format(data: bytes, name: str) -> str | None:
+def embedded_format(data: bytes, name: str) -> str | None:
+    """Format id of an embedded file, or None if Airlock cannot read it."""
     head = data[:65536]
     names: set[str] | None = None
     if head.startswith(b"PK\x03\x04"):
@@ -99,7 +100,7 @@ def _embedded_format(data: bytes, name: str) -> str | None:
 def _extract_embedded(
     ctx: ExtractionContext, data: bytes, name: str, part: str, label: str
 ) -> None:
-    format_id = _embedded_format(data, name)
+    format_id = embedded_format(data, name)
     spec = next((s for s in formats.all_specs() if s.format_id == format_id), None)
     if spec is None or spec.support is not Support.AVAILABLE:
         ctx.unextracted("embedded_object", label)

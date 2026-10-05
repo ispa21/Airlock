@@ -119,6 +119,7 @@ Airlock/
 │   │   ├── extraction/              Adapter routing, worker isolation
 │   │   ├── detectors/{regex,secrets,ner,custom}
 │   │   ├── scan/                    In-memory scan sessions, content-free report
+│   │   ├── masking/                 Replacements, value sweep, plan, vault, work folder
 │   │   ├── storage/                 SQLite: settings, categories, rules, allow-list
 │   │   ├── policy/  masking/  verification/  risk/
 │   │   ├── clipboard/               V2 module boundary (empty)
@@ -164,8 +165,8 @@ which is never shipped.
 | 1 ✅ | stdlib only (dev: pytest, ruff, mypy) | tauri 2, tauri-plugin-dialog, serde_json; react, @tauri-apps/api, plugin-dialog (dev: vite, vitest, testing-library) |
 | 2 ✅ | defusedxml, pypdfium2, pillow, rapidocr, onnxruntime, opencv-python-headless, numpy (dev: python-docx, openpyxl, python-pptx, reportlab for fixtures) | — |
 | 3 ✅ | spacy + `en_core_web_sm` (bundled), phonenumbers, regex | — |
-| 5 | cryptography, pywin32 (DPAPI) | — |
-| 7 | reportlab (rebuild safe PDFs) | — |
+| 5 ✅ | cryptography (AES-GCM), reportlab (rebuilt PDFs); DPAPI through `ctypes` (no pywin32) | — |
+| 7 | — | — |
 | 8 | pyinstaller | NSIS via tauri-bundler, code-signing tooling |
 | 9 | — | tauri-plugin-single-instance |
 | 10 | — | ed25519-dalek, base64 |
@@ -279,6 +280,41 @@ Detected (Phase 3) ──▶ PolicyEngine.decide(items, profile, overrides)
   segment with one action and the primary finding's type and mask style.
 * **Overrides** live in the scan session only. They target a finding or a
   value group, so one decision covers every occurrence of the same value.
+
+## 5d. Masking and protected copies (Phase 5)
+
+```
+sanitize.run(scan_id)
+  └─ build_plan(document, decision)                        engine
+        edits  (segment, start, end, replacement)  — every region
+        sweep  (value → replacement)                — regions and covered findings
+        paint  (image part, frame, boxes | whole)   — OCR text cannot be edited
+        vault  (replacement → original, type)       — reversible replacements only
+  └─ worker: read original, check SHA-256 against the scan
+        format sanitizer ─ text | OOXML token rewriter | image painter | PDF rebuild
+        second sweep pass (no word edges) for values never found
+        write <data dir>/work/<artifact>.<ext>  (exclusive create, 0600)
+  └─ vault record (AES-256-GCM, key wrapped by DPAPI)       engine
+  └─ result: counts, removed hidden content, vault status (no content)
+```
+
+* **Plan vs. execution.** The engine decides every replacement; the worker
+  only applies them. The plan holds original values, so it travels only over
+  the worker's private pipe.
+* **Write-back mirrors extraction.** The OOXML rewriter walks the same text the
+  extractor read (paragraph runs, rich-text strings, leaf text, human-text
+  attributes, external relationship targets), so anything detected can be
+  replaced. It edits only the bytes that change, so namespace prefixes and
+  `mc:Ignorable` lists survive, and every rewritten part must parse again.
+* **What cannot be checked is removed.** Macros, thumbnails, unreadable
+  pictures and embedded objects do not reach the copy (removed, blanked or
+  emptied), which closes risk R2 for content Airlock cannot read.
+* **PDFs are rebuilt** (risk R1): masked page text only.
+* **Copies are not yet trusted.** Phase 7 re-extracts and rescans each copy
+  before it can be saved; until then copies stay in the private work folder.
+* **Reversibility** is recorded per copy in the vault; restoring AI responses
+  in the UI, session-scoped mappings and `PERSON_001`-style placeholders are
+  Phase 12 ([REVERSIBLE_MASKING.md](REVERSIBLE_MASKING.md)).
 
 ## 6. Data model
 
@@ -408,7 +444,7 @@ Planned for later phases (shape fixed now, code later):
 
 ```python
 class PolicyEngine:   def decide(self, items, profile, overrides) -> PolicyDecision   # ✅ Phase 4
-class Masker:         def replacements(self, findings, style, vault) -> list[Replacement]
+class Masker:         build_plan(document, decision) -> MaskPlan     # ✅ Phase 5 (masking/masker.py)
 class RiskScorer:     def score(self, findings) -> RiskReport          # deterministic, explainable
 class Verifier:       def verify(self, original_findings, produced_file) -> VerificationReport
 ```

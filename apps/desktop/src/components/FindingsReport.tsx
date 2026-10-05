@@ -247,8 +247,7 @@ export function FindingsReport({
         </p>
       )}
       <p className="report__foot">
-        Previews are partly hidden on purpose. A change applies to every place the same value appears. Producing the
-        protected copy comes next.
+        Previews are partly hidden on purpose. A change applies to every place the same value appears.
       </p>
     </section>
   );

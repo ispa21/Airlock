@@ -30,6 +30,9 @@ runtime dependency of the engine is GPL, AGPL, LGPL or SSPL licensed.
 | typer, click, rich, shellingham, markdown-it-py, mdurl, Pygments, jinja2, MarkupSafe, smart-open, cloudpathlib, wrapt, setuptools | MIT / BSD / ISC | Pulled in by spaCy's CLI and project tooling; not used by Airlock |
 | phonenumbers | Apache-2.0 | Phone number validation with bundled metadata (offline) |
 | regex | Apache-2.0 AND CNRI-Python | Company-rule patterns with a per-match timeout (ReDoS-safe) |
+| cryptography | Apache-2.0 OR BSD-3-Clause | AES-256-GCM for the placeholder vault and key wrapping (Phase 5) |
+| cffi, pycparser | MIT-0 / BSD-3-Clause | cryptography runtime |
+| reportlab | BSD | Rebuilds safe PDFs from masked text (Phase 5). Airlock uses only the bundled **Bitstream Vera** fonts (Vera licence, permissive). reportlab also ships the *DarkGarden* font under the GPL: the Phase 8 bundle must exclude `reportlab/fonts/DarkGarden*`. |
 
 MPL-2.0 is a file-level licence. Distributing unmodified copies inside a
 proprietary product is permitted, provided the licence notice and source
@@ -41,14 +44,16 @@ notices (Phase 8).
 | Component | Licence |
 | --- | --- |
 | Tauri 2, tauri-plugin-dialog, wry, tao | Apache-2.0 / MIT |
+
+Windows DPAPI is called through Python's standard `ctypes` (no pywin32).
 | serde, serde_json | Apache-2.0 / MIT |
 | React, React DOM | MIT |
 | @tauri-apps/api, @tauri-apps/plugin-dialog | Apache-2.0 / MIT |
 
 ## Development only (not shipped)
 
-python-docx (MIT), openpyxl (MIT), python-pptx (MIT) and reportlab (BSD) build
-test fixtures; types-regex (Apache-2.0) provides type stubs; pytest (MIT), ruff (MIT), mypy (MIT), Vite (MIT), Vitest (MIT)
+python-docx (MIT), openpyxl (MIT) and python-pptx (MIT) build test fixtures
+(reportlab is now a runtime dependency); types-regex (Apache-2.0) provides type stubs; pytest (MIT), ruff (MIT), mypy (MIT), Vite (MIT), Vitest (MIT)
 and Testing Library (MIT) are used for development and CI.
 
 A complete notices file listing every transitive dependency with its licence

@@ -7,6 +7,7 @@ import sys
 import threading
 from pathlib import Path
 
+from airlock_engine.security.keyprotect import KeyProtector, default_protector
 from airlock_engine.storage.db import DB_FILE, Database, StorageError
 from airlock_engine.storage.profiles import ProfileError, ProfileNotFound, ProfileStore
 from airlock_engine.storage.rules import AllowList, RuleStore
@@ -47,13 +48,15 @@ class Storage:
         self._rules: RuleStore | None = None
         self._allow: AllowList | None = None
         self._profiles: ProfileStore | None = None
+        self.protector: KeyProtector | None = None
 
     def _open(self) -> None:
         if self._db is None:
             path = self.data_dir / DB_FILE if self.data_dir is not None else None
             self._db = Database(path)
             self._rules = RuleStore(self._db)
-            self._allow = AllowList(self._rules)
+            self.protector = default_protector(self.data_dir)
+            self._allow = AllowList(self._rules, self.protector)
             self._profiles = ProfileStore(self._db)
 
     @property
@@ -69,6 +72,12 @@ class Storage:
             self._open()
             assert self._allow is not None
             return self._allow
+
+    def key_protector(self) -> KeyProtector:
+        with self._lock:
+            self._open()
+            assert self.protector is not None
+            return self.protector
 
     @property
     def profiles(self) -> ProfileStore:

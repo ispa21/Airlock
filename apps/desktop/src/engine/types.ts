@@ -212,3 +212,16 @@ export interface ScanResult {
   detection_ms: number;
   risk: null;
 }
+
+/** Result of `sanitize.run`: a protected copy waiting for verification (Phase 7). */
+export interface SanitizeResult {
+  artifact_id: string;
+  file_name: string;
+  format: string;
+  size_bytes: number;
+  replaced: { MASK: number; REDACT: number; GENERALIZE: number };
+  removed: { label: string; count: number }[];
+  vault: { entries: number; stored: boolean; protection: string | null };
+  verified: boolean;
+  duration_ms: number;
+}

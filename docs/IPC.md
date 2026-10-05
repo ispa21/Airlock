@@ -52,7 +52,11 @@ The host restarts a crashed engine on the next request, at most 3 restarts per
 | `scan.set_profile` | yes | `{scan_id, profile_id}` | `{scan_id, findings[], summary, policy}`; the user's overrides are kept |
 | `scan.override` | yes | `{scan_id, overrides: [{finding_id \| value_group, action \| null}], acknowledge_risk?}` | `{scan_id, findings[], summary, policy}`; all-or-nothing |
 | `scan.discard` | yes | `{scan_id}` | `{ok, discarded}` |
-| `sanitize.run` | Phase 5 | `{scan_id, decisions[]}` | `{artifact_id}` |
+| `sanitize.run` | yes (cancellable) | `{scan_id, strip_metadata?: bool}` (uses the scan's current decisions) | `{artifact_id, file_name, format, size_bytes, replaced{MASK,REDACT,GENERALIZE}, removed[{label,count}], vault{entries,stored,protection}, verified: false, duration_ms}`; fails with `blocked_findings` while any BLOCK remains, `file_changed` if the original changed since the scan |
+| `sanitize.discard` | yes | `{artifact_id}` | `{ok, discarded}` (the vault record stays) |
+| `vault.restore` | yes | `{artifact_id, text}` | `{text, restored}`: the only method that returns original values, on this explicit request; unknown placeholders are left unchanged |
+| `vault.forget` | yes | `{artifact_id}` | `{ok, deleted}` |
+| `vault.status` | yes | `{}` | `{protection: dpapi \| file \| memory, records}` |
 | `verify.run` | Phase 7 | `{artifact_id}` | `{passed, original_count, remaining_count, remaining[]}` |
 | `export.save` / `export.text` | Phase 7 | `{artifact_id, destination}` / `{artifact_id}` | `{ok}` / `{text}` (sanitized only) |
 | `profiles.list` | yes | `{}` | `{profiles[], default_id, entity_types[], actions[], mask_styles[]}`; each profile lists the action and its source for every entity type |

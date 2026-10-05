@@ -913,3 +913,20 @@ select {
     grid-column: 2;
   }
 }
+
+/* Protected copy ------------------------------------------------------------- */
+.copy__ready {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.copy__name {
+  margin: 0;
+  font-weight: 650;
+  word-break: break-word;
+}
+
+.copy .primary {
+  align-self: stretch;
+}

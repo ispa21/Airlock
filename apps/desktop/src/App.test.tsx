@@ -86,6 +86,18 @@ const RESULT: ScanResult = {
   },
 };
 
+const COPY = {
+  artifact_id: "art_0123456789abcdef",
+  file_name: "Contract (Airlock protected).docx",
+  format: "docx",
+  size_bytes: 20_480,
+  replaced: { MASK: 2, REDACT: 0, GENERALIZE: 0 },
+  removed: [{ label: "Macros (VBA project)", count: 1 }],
+  vault: { entries: 2, stored: true, protection: "dpapi" },
+  verified: false,
+  duration_ms: 420,
+};
+
 function fakePlatform(overrides: Partial<Platform> = {}) {
   let drop: DropHandlers | undefined;
   const platform: Platform = {
@@ -107,6 +119,8 @@ function fakePlatform(overrides: Partial<Platform> = {}) {
     }),
     setProfile: vi.fn(),
     override: vi.fn(),
+    sanitize: vi.fn().mockResolvedValue(COPY),
+    discardCopy: vi.fn().mockResolvedValue(undefined),
     cancel: vi.fn().mockResolvedValue(undefined),
     onFileDrop: vi.fn(async (handlers: DropHandlers) => {
       drop = handlers;
@@ -317,6 +331,38 @@ describe("App", () => {
     await userEvent.selectOptions(screen.getByLabelText("Action for E-mail address f2"), "REDACT");
     expect(await screen.findByText("The results of this scan are no longer available.")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "What Airlock found" })).toBeInTheDocument();
+  });
+
+  it("creates a protected copy and discards it when choices change", async () => {
+    const update = { scan_id: "scan_test", findings: RESULT.findings, summary: RESULT.summary, policy: RESULT.policy };
+    const { platform } = fakePlatform({ override: vi.fn().mockResolvedValue(update) });
+    renderApp(platform);
+    await userEvent.click(screen.getByRole("button", { name: /drop files here/i }));
+    await screen.findByText("Verified");
+    await userEvent.click(screen.getByRole("button", { name: "Scan Document" }));
+    await screen.findByRole("heading", { name: "What Airlock found" });
+
+    await userEvent.click(screen.getByRole("button", { name: "Create Protected Copy" }));
+    expect(platform.sanitize).toHaveBeenCalledWith("scan_test", expect.stringMatching(/^scan-/), expect.any(Function));
+    expect(await screen.findByText("Contract (Airlock protected).docx")).toBeInTheDocument();
+    expect(screen.getByText("2 replaced by placeholders")).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Removed from the copy" })).toHaveTextContent("Macros (VBA project)");
+    expect(screen.getByText(/2 placeholders are kept in Airlock's encrypted vault/)).toBeInTheDocument();
+
+    await userEvent.selectOptions(screen.getByLabelText("Action for E-mail address f2"), "REDACT");
+    await waitFor(() => expect(platform.discardCopy).toHaveBeenCalledWith("art_0123456789abcdef"));
+    expect(screen.getByText("Your choices changed, so the previous copy was discarded.")).toBeInTheDocument();
+  });
+
+  it("cannot create a copy while items are blocked", async () => {
+    const blocked: ScanResult = { ...RESULT, policy: { ...RESULT.policy, blocked: 1, ready: false } };
+    const { platform } = fakePlatform({ scan: vi.fn().mockResolvedValue(blocked) });
+    renderApp(platform);
+    await userEvent.click(screen.getByRole("button", { name: /drop files here/i }));
+    await screen.findByText("Verified");
+    await userEvent.click(screen.getByRole("button", { name: "Scan Document" }));
+    expect(await screen.findByRole("button", { name: "Create Protected Copy" })).toBeDisabled();
+    expect(screen.getByText("Resolve the blocked items above before creating a copy.")).toBeInTheDocument();
   });
 
   it("shows progress and can cancel a running scan", async () => {

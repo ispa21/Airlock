@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Any
 
 from airlock_engine import safelog
@@ -22,6 +23,7 @@ from airlock_engine.ipc.server import (
     RequestContext,
     require_str,
 )
+from airlock_engine.masking.artifacts import ArtifactStore
 from airlock_engine.policy.engine import PolicyEngine, is_high_risk
 from airlock_engine.policy.profiles import BUILTIN_PROFILES, DEFAULT_PROFILE_ID, Profile
 from airlock_engine.scan import ScanSession, SessionStore
@@ -95,7 +97,9 @@ def _profile(storage: Storage, profile_id: str | None) -> Profile:
         raise errors.storage_unavailable() from None
 
 
-def register(registry: MethodRegistry, storage: Storage, sessions: SessionStore) -> None:
+def register(
+    registry: MethodRegistry, storage: Storage, sessions: SessionStore, artifacts: ArtifactStore
+) -> None:
     def respond(session: ScanSession) -> dict[str, Any]:
         meta = session.meta
         return build_report(
@@ -149,7 +153,15 @@ def register(registry: MethodRegistry, storage: Storage, sessions: SessionStore)
         )
         # Labels of custom categories as they were at scan time.
         session.meta.update(
-            entities=context.entities(), ner_status=ner_status, rule_count=len(context.rules)
+            entities=context.entities(),
+            ner_status=ner_status,
+            rule_count=len(context.rules),
+            # Needed to create the protected copy from exactly these bytes.
+            path=extraction.path,
+            sha256=extraction.sha256,
+            extension=extraction.extension,
+            name=Path(extraction.path).name,
+            format_label=extraction.spec.label,
         )
         report = respond(session)
         _log_scan(report, extraction.spec.format_id, detect_ms)
@@ -241,6 +253,7 @@ def register(registry: MethodRegistry, storage: Storage, sessions: SessionStore)
         """Forget a scan's document text, findings and decisions."""
         scan_id = require_str(params, "scan_id", max_len=64)
         discarded = sessions.discard(scan_id)
+        artifacts.discard_scan(scan_id)
         return {"ok": True, "discarded": discarded}
 
     registry.register("scan.start", start)

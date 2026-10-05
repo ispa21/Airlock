@@ -13,6 +13,7 @@ import type {
   PolicyAction,
   PolicySummary,
   Progress,
+  SanitizeResult,
   ScanResult,
 } from "./types";
 
@@ -242,6 +243,24 @@ export const previewPlatform: Platform = {
   },
 
   async discard() {},
+
+  async sanitize(scanId: string): Promise<SanitizeResult> {
+    await delay(700);
+    const { findings, policy } = decide(PREVIEW_RAW.findings);
+    return {
+      artifact_id: `art_${scanId}`,
+      file_name: "Q3 Board Report (Airlock protected).pdf",
+      format: "pdf",
+      size_bytes: 61_440,
+      replaced: { MASK: policy.actions.MASK, REDACT: policy.actions.REDACT, GENERALIZE: policy.actions.GENERALIZE },
+      removed: [{ label: "Comments, form values, attachments, bookmarks and properties", count: 1 }],
+      vault: { entries: findings.filter((f) => f.effective_action === "MASK").length, stored: true, protection: "dpapi" },
+      verified: false,
+      duration_ms: 700,
+    };
+  },
+
+  async discardCopy() {},
 
   async cancel(tag: string) {
     cancelled.add(tag);

@@ -4,6 +4,7 @@ import { DropZone, type Selection } from "./components/DropZone";
 import { ErrorNotice } from "./components/ErrorNotice";
 import { ExtractionReport } from "./components/ExtractionReport";
 import { FindingsReport, type ActionHandler } from "./components/FindingsReport";
+import { ProtectedCopy, type CopyState } from "./components/ProtectedCopy";
 import { AirlockMark, ChevronIcon } from "./components/icons";
 import { ScanProgress } from "./components/ScanProgress";
 import { TrustBar } from "./components/TrustBar";
@@ -44,6 +45,8 @@ export function App() {
   const [profiles, setProfiles] = useState<ProfileOption[]>(FALLBACK_PROFILES);
   const [profile, setProfile] = useState(FALLBACK_PROFILES[0]!.id);
   const [applying, setApplying] = useState(false);
+  const [copy, setCopy] = useState<CopyState>({ status: "none" });
+  const copyTag = useRef<string | null>(null);
   // Ignore results from work that a newer file selection replaced.
   const latestRequest = useRef(0);
   const runningTag = useRef<string | null>(null);
@@ -80,6 +83,9 @@ export function App() {
   }, [engine.state, platform]);
 
   const stopRunningScan = useCallback(() => {
+    if (copyTag.current) void platform.cancel(copyTag.current).catch(() => undefined);
+    copyTag.current = null;
+    setCopy({ status: "none" });
     if (runningTag.current) void platform.cancel(runningTag.current).catch(() => undefined);
     runningTag.current = null;
     if (lastScanId.current) void platform.discard(lastScanId.current).catch(() => undefined);
@@ -147,6 +153,7 @@ export function App() {
     runningTag.current = tag;
     setError(null);
     setNotice(null);
+    setCopy({ status: "none" });
     setScan({ status: "running", tag, progress: null });
     try {
       const result = await platform.scan(selection.path, profile, tag, (progress) => {
@@ -170,6 +177,14 @@ export function App() {
   }, [platform, selection, profile]);
 
   const applyUpdate = useCallback((update: PolicyUpdate) => {
+    // Decisions changed: a copy made with the old ones must not be used.
+    setCopy((current) => {
+      if (current.status === "ready") {
+        void platform.discardCopy(current.result.artifact_id).catch(() => undefined);
+        return { status: "stale" };
+      }
+      return current;
+    });
     setScan((current) =>
       current.status === "done" && current.result.scan_id === update.scan_id
         ? {
@@ -178,7 +193,7 @@ export function App() {
           }
         : current,
     );
-  }, []);
+  }, [platform]);
 
   const policyCall = useCallback(
     async (call: () => Promise<PolicyUpdate>) => {
@@ -212,6 +227,35 @@ export function App() {
     },
     [platform, policyCall, scan],
   );
+
+  const createCopy = useCallback(async () => {
+    if (scan.status !== "done") return;
+    const scanId = scan.result.scan_id;
+    const tag = newTag();
+    copyTag.current = tag;
+    setError(null);
+    setCopy({ status: "running" });
+    try {
+      const result = await platform.sanitize(scanId, tag, () => undefined);
+      if (copyTag.current !== tag) {
+        void platform.discardCopy(result.artifact_id).catch(() => undefined);
+        return;
+      }
+      setCopy({ status: "ready", result });
+    } catch (err) {
+      if (copyTag.current !== tag) return;
+      const failure = toEngineError(err);
+      setCopy({ status: "none" });
+      if (failure.kind === "cancelled") setNotice("Protected copy cancelled. Your file was not changed.");
+      else setError(failure);
+    } finally {
+      if (copyTag.current === tag) copyTag.current = null;
+    }
+  }, [platform, scan]);
+
+  const cancelCopy = useCallback(() => {
+    if (copyTag.current) void platform.cancel(copyTag.current).catch(() => undefined);
+  }, [platform]);
 
   const cancelScan = useCallback(() => {
     if (runningTag.current) void platform.cancel(runningTag.current).catch(() => undefined);
@@ -275,7 +319,15 @@ export function App() {
 
         {scan.status === "done" && (
           <>
-            <FindingsReport result={scan.result} onAction={changeAction} busy={applying} />
+            <FindingsReport result={scan.result} onAction={changeAction} busy={applying || copy.status === "running"} />
+            {scan.result.summary.total > 0 && (
+              <ProtectedCopy
+                state={copy}
+                policy={scan.result.policy}
+                onCreate={() => void createCopy()}
+                onCancel={cancelCopy}
+              />
+            )}
             <ExtractionReport summary={scan.result.extraction} />
           </>
         )}

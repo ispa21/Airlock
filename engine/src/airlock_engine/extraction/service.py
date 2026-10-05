@@ -22,6 +22,11 @@ class Extraction:
     document: ExtractedDocument
     spec: FormatSpec
     duration_ms: float
+    #: SHA-256 of the exact bytes that were scanned.
+    sha256: str = ""
+    path: str = ""
+    size_bytes: int = 0
+    extension: str = ""
 
 
 def extract_path(path: str, options: ExtractionOptions, ctx: RequestContext) -> Extraction:
@@ -57,4 +62,13 @@ def extract_path(path: str, options: ExtractionOptions, ctx: RequestContext) -> 
         document = document_from_wire(raw)
     except WireError as exc:
         raise errors.extraction_crashed() from exc
-    return Extraction(document, spec, (time.perf_counter() - started) * 1000)
+    sha256 = raw.get("source_sha256", "") if isinstance(raw, dict) else ""
+    return Extraction(
+        document,
+        spec,
+        (time.perf_counter() - started) * 1000,
+        sha256=str(sha256),
+        path=str(validated.path),
+        size_bytes=validated.size_bytes,
+        extension=validated.extension,
+    )

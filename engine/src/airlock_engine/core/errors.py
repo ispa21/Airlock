@@ -240,3 +240,44 @@ def confirmation_required() -> AirlockError:
         "national id. It would be shared with the AI as it is.",
         next_step="Confirm that you want to keep it, or choose mask, redact or block.",
     )
+
+
+# --- masking and vault (Phase 5) --------------------------------------------
+
+
+def blocked_findings(count: int) -> AirlockError:
+    noun = "item is" if count == 1 else "items are"
+    return AirlockError(
+        kind="blocked_findings",
+        message=f"{count} {noun} still set to Block, so Airlock will not create a protected "
+        "copy yet.",
+        next_step="Choose Redact or Mask for the blocked items, or remove them from the file.",
+    )
+
+
+def artifact_not_found() -> AirlockError:
+    return AirlockError(
+        kind="artifact_not_found",
+        message="This protected copy is no longer available. Airlock keeps copies only until "
+        "they are saved or discarded.",
+        next_step="Create the protected copy again.",
+    )
+
+
+def vault_record_not_found() -> AirlockError:
+    return AirlockError(
+        kind="vault_record_not_found",
+        message="Airlock has no stored placeholders for this protected copy. They may have "
+        "expired or been deleted.",
+        next_step="Placeholders can only be restored on the device that created the copy, "
+        "within the retention period.",
+    )
+
+
+def vault_unavailable() -> AirlockError:
+    return AirlockError(
+        kind="vault_unavailable",
+        message="Airlock could not open its encrypted placeholder store.",
+        next_step="Restart Airlock. If it keeps happening, check that your user profile "
+        "folder is writable.",
+    )

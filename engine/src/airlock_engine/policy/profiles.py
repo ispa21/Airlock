@@ -35,9 +35,7 @@ MASK_STYLES = ("typed_placeholder", "placeholder", "synthetic")
 
 #: Entity types with a meaningful coarser form (DOB → year, e-mail → domain,
 #: IP → subnet, ...). GENERALIZE on anything else falls back to MASK.
-GENERALIZABLE = frozenset(
-    {"DATE_OF_BIRTH", "EMAIL", "PHONE", "IP_ADDRESS", "URL", "MONEY", "LOCATION"}
-)
+GENERALIZABLE = frozenset({"DATE_OF_BIRTH", "EMAIL", "PHONE", "IP_ADDRESS", "URL", "MONEY"})
 
 ACTION_LABELS: dict[Action, str] = {
     Action.ALLOW: "kept",

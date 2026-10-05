@@ -10,13 +10,14 @@ done when its exit criteria pass on a real run, not when it compiles.
 | 2 | Document extraction | Adapters for PDF, DOCX, XLSX, CSV, TXT, PPTX, then images (OCR), config files and code. Hidden parts extracted. Worker-process isolation. Malformed-file and fuzz suites | ✅ Done |
 | 3 | Detection | Regex detectors with checksums (Email, Phone, PAN, Aadhaar, GSTIN, bank account, IFSC, card, IP, URL); secret detectors; spaCy NER provider; company rules (exact, case-insensitive, normalized, alias, regex); SQLite storage; quality gates | ✅ Done |
 | 4 | Policy | Profiles, entity → action mapping, defaults (credentials → BLOCK), overlap resolution, user overrides | ✅ Done |
-| 5 | Masking (next) | Redaction, placeholder, typed placeholder, synthetic replacement, generalisation, reversible encrypted vault (DPAPI + AES-GCM), adapter `sanitize` for each format | |
-| 6 | Privacy report | Category summary, deterministic explainable risk, per-finding detector/confidence/action, partial masking, "teach Airlock" flow | |
+| 5 | Masking | Redaction, placeholder, typed placeholder, synthetic replacement, generalisation, reversible encrypted vault (DPAPI + AES-GCM), adapter `sanitize` for each format | ✅ Done |
+| 6 | Privacy report (next) | Category summary, deterministic explainable risk, per-finding detector/confidence/action, partial masking, "teach Airlock" flow | |
 | 7 | Verification and export | Re-extract the produced artifact, rescan, residual-value check, raw OOXML sweep, block on failure, safe export, AI-safe copy | |
 | 8 | Windows packaging | PyInstaller onedir engine, NSIS installer, WebView2 strategy, code signing, firewall rule option, tauri-driver E2E on Windows, clean-VM DoD run | |
 | 9 | Right-click integration | "Protect with Airlock" verb (HKCU), single-instance hand-off of the file path | |
 | 10 | Lifetime licensing | Ed25519 signed licences, offline import, online activation (isolated from the engine), local verification | |
 | 11 | Browser extension foundation | Native-messaging host, named-pipe agent channel, MV3 extension skeleton for Chrome and Edge | |
+| 12 | Reversible masking & response restoration (queued) | Session/conversation-scoped mapping vault, stable `PERSON_001`-style pseudonyms, local restoration of AI responses (review before restore), outbound privacy check, prompt and clipboard protection, provider-neutral AI adapter layer. Requirements: [REVERSIBLE_MASKING.md](REVERSIBLE_MASKING.md) | |
 
 ## Phase 1 verification log
 
@@ -155,3 +156,56 @@ context keyword or column header.
 Not done in this phase: a screen for creating and editing custom profiles
 (the `profiles.*` methods exist; the UI only selects profiles). That screen
 belongs with the "teach Airlock" flow in Phase 6.
+
+## Phase 5 verification log
+
+* Masking: typed placeholders (`[EMAIL_1]`, consistent per value, numbering
+  skips placeholders already in the file), generic placeholders, synthetic
+  values from reserved ranges (`example.invalid`, `192.0.2.x`, `2001:db8::`),
+  redaction (`[REDACTED]`) and generalisation (date of birth → year, e-mail →
+  domain, phone → country code, IP → subnet, URL → host, amount → rounded).
+  Custom category names never appear in placeholders.
+* Value sweep: every protected value is replaced wherever it is stored, not
+  only where it was detected. Short plain words match on word edges; ids,
+  secrets, e-mail addresses and names match anywhere; a value never found is
+  swept again without edges.
+* Sanitizers (isolated worker, original checked by SHA-256 against the scan):
+  text/config/code/CSV (same encoding, BOM and line endings); DOCX/XLSX/PPTX
+  through a byte-preserving token rewriter (runs joined, namespace prefixes and
+  `mc:Ignorable` intact, numeric cells and pivot items become text, external
+  link targets, human-text attributes, every rewritten part re-parsed);
+  macros and thumbnails removed with their relationships; unreadable pictures
+  blanked (valid EMF/WMF/PNG blanks); unreadable embedded objects emptied;
+  embedded Office files sanitised recursively; author fields cleared; images
+  painted over OCR line boxes and rebuilt from pixels (no EXIF/GPS/XMP/ICC);
+  PDFs rebuilt from masked text with reportlab (hidden PDF content dropped).
+* Vault: AES-256-GCM record per copy (placeholder, original, entity type),
+  record id as associated data, key wrapped by DPAPI on Windows (ctypes) or a
+  user-only key file elsewhere; 30-day retention; `vault.restore` restores
+  only known placeholders. The allow-list key moved under the same protector
+  (Phase 3 plain keys migrated).
+* Work folder: `<data dir>/work`, user-only; swept at start-up, emptied on
+  exit, scan discard and copy discard.
+* Leak tests: a canary in every hidden location of DOCX, XLSX, PPTX, PDF
+  (with a scanned page), PNG, CSV and ENV; after protection no canary in the
+  copy's bytes (every ZIP part decompressed, recursively), in a re-extraction
+  of the copy with OCR, in the log, in IPC responses or in the database; the
+  original is unchanged; the copy is user-only and is deleted on discard.
+* Engine 367 tests (+1 IPv6 and 1 Windows-only DPAPI case skipped here), host
+  13 tests, UI 20 tests; ruff, ruff format, mypy `--strict`, clippy clean.
+* Real app (Linux, Xvfb): the token blocked the copy until set to Redact; the
+  protected DOCX had all 8 sensitive values replaced (checked against the
+  original's XML), the IFSC code kept as the profile allows, author cleared,
+  thumbnail removed; on closing, the work folder was empty and the encrypted
+  vault record remained; originals unchanged; log and database clean.
+* CI: Phase 3 and 4 commits had failed CI on `ruff format --check`, which
+  also hid a Windows-only failure (the isolation test's simulated segfault
+  raised `OSError` under ctypes instead of crashing). Both fixed; Windows
+  results for the Phase 5 code come from the next CI run.
+
+Known limits carried forward: the rebuilt PDF loses layout and pictures (by
+design) and renders scripts outside the Vera font (e.g. Devanagari) as boxes
+until Phase 8 bundles a broader font; Excel may repair pivot caches whose
+numeric items became text; the restore UI is part of Phase 12; the copy is
+not yet verified or saveable (Phase 7).
+

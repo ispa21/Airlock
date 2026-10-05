@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import re
@@ -12,6 +13,7 @@ from typing import Any
 
 from airlock_engine.core.models import Action, Category, Severity
 from airlock_engine.detectors.custom import CompanyRule, RuleError, normalize, validate_rule_terms
+from airlock_engine.security.keyprotect import KeyProtector
 from airlock_engine.storage.db import Database, now
 
 ACTIONS = ("ALLOW", "MASK", "REDACT", "GENERALIZE", "BLOCK")
@@ -236,6 +238,10 @@ class RuleStore:
         rows = self.db.query("SELECT value FROM settings WHERE key = ?", (key,))
         return str(rows[0]["value"]) if rows else None
 
+    def delete_setting(self, key: str) -> None:
+        with self.db.transaction() as conn:
+            conn.execute("DELETE FROM settings WHERE key = ?", (key,))
+
     def set_setting(self, key: str, value: str) -> None:
         with self.db.transaction() as conn:
             conn.execute(
@@ -258,19 +264,26 @@ def _clean_aliases(aliases: tuple[str, ...], pattern: str) -> tuple[str, ...]:
 class AllowList:
     """Values the user marked "not sensitive", stored as keyed fingerprints.
 
-    The HMAC key is random per installation. Phase 5 wraps it with DPAPI
-    alongside the vault key; until then it lives in the user-only database.
+    The HMAC key is random per installation and wrapped by the key protector
+    (DPAPI on Windows), so the database alone cannot be used to test guesses.
     """
 
-    _KEY_SETTING = "allow_list_key"
+    _KEY_SETTING = "allow_list_key_wrapped"
+    _LEGACY_SETTING = "allow_list_key"  # Phase 3: plain hex, migrated on first use
 
-    def __init__(self, store: RuleStore) -> None:
+    def __init__(self, store: RuleStore, protector: KeyProtector) -> None:
         self._store = store
-        key_hex = store.setting(self._KEY_SETTING)
-        if key_hex is None:
-            key_hex = secrets.token_hex(32)
-            store.set_setting(self._KEY_SETTING, key_hex)
-        self._key = bytes.fromhex(key_hex)
+        wrapped = store.setting(self._KEY_SETTING)
+        if wrapped is not None:
+            self._key = protector.unwrap(base64.b64decode(wrapped))
+        else:
+            legacy = store.setting(self._LEGACY_SETTING)
+            self._key = bytes.fromhex(legacy) if legacy else secrets.token_bytes(32)
+            store.set_setting(
+                self._KEY_SETTING, base64.b64encode(protector.wrap(self._key)).decode("ascii")
+            )
+            if legacy:
+                store.delete_setting(self._LEGACY_SETTING)
         self._cache: set[tuple[str, str]] | None = None
 
     def _fingerprint(self, value: str) -> str:

@@ -74,7 +74,7 @@ reasons, and overlap regions (containment, partial and chained overlaps).
 migration; `test_api_policy.py` drives overrides, risk acknowledgement and
 profile switching over RPC and checks no raw value appears in any response.
 
-## Leak tests (Phase 5+)
+## Leak tests (Phase 5+) — implemented in `test_api_sanitize.py`
 
 Canary values are seeded into every part of each test document: body,
 headers/footers, comments, tracked changes, speaker notes, hidden sheets,
