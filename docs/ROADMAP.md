@@ -244,7 +244,10 @@ not yet verified or saveable (Phase 7).
   showed the built-in profile read-only and duplicated it into an editable
   copy. Originals byte-identical; the log held only allowlisted events
   (`airlock_taught` with `status: not_sensitive`); no document value in the
-  log or the database; no processes left after closing.
+  log or the database; no processes left after closing. After a restart the
+  "not sensitive" decision still held, and company-rule matches offered no
+  "Teach Airlock" link.
+* CI green on Linux and Windows (engine, host and UI jobs).
 
 Not in this phase: editing a profile's confidence threshold or adding custom
 categories from the UI (`profiles.update` and `rules.add_category` exist);
