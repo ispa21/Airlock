@@ -48,10 +48,14 @@ The host restarts a crashed engine on the next request, at most 3 restarts per
 | `system.shutdown` | no (host only) | `{}` | `{ok: true}`, then the engine stops reading |
 | `document.inspect` | yes | `{path}` | `{file_name, extension, size_bytes, format, format_label, family, support, scannable}` |
 | `document.extract` | yes (cancellable) | `{path, ocr?: bool}` | Content-free summary: `{format, format_label, segment_count, char_count, word_count, parts[{kind, segments, chars, words}], counts{pages, slides, sheets, rows, lines, images_ocr, embedded}, ocr_used, unextracted[{kind, label, count}], unextracted_total, duration_ms}`. Emits `$/progress` with stages `pages`, `slides`, `sheets`, `rows`, `parts`, `ocr`. |
-| `scan.start` | yes (cancellable) | `{path, profile_id?, ocr?: bool, ner?: bool}` | `{scan_id, extraction, findings[], summary, policy, detection_ms, risk: null}` with `$/progress` stages from extraction, then `prepare` (model load) and `detect` |
-| `scan.set_profile` | yes | `{scan_id, profile_id}` | `{scan_id, findings[], summary, policy}`; the user's overrides are kept |
-| `scan.override` | yes | `{scan_id, overrides: [{finding_id \| value_group, action \| null}], acknowledge_risk?}` | `{scan_id, findings[], summary, policy}`; all-or-nothing |
+| `scan.start` | yes (cancellable) | `{path, profile_id?, ocr?: bool, ner?: bool}` | `{scan_id, extraction, findings[], summary, policy, detection_ms, risk}` with `$/progress` stages from extraction, then `prepare` (model load) and `detect` |
+| `scan.set_profile` | yes | `{scan_id, profile_id}` | `{scan_id, findings[], summary, policy, risk}`; the user's overrides are kept |
+| `scan.override` | yes | `{scan_id, overrides: [{finding_id \| value_group, action \| null, mask_style?}], acknowledge_risk?}` | `{scan_id, findings[], summary, policy, risk}`; all-or-nothing. `mask_style` needs action `MASK`; `partial` is refused for credentials |
+| `scan.refresh` | yes (cancellable) | `{scan_id}` | Same as `scan.override`. Detects again on the text already read (the file is not reopened) with the current company rules, allow-list and profile (a deleted profile falls back to the default); the user's decisions carry over to the same values |
+| `scan.teach` | yes (cancellable) | `{scan_id, finding_id, kind: not_sensitive \| company_rule, match?, category_id?, action?}` | Same as `scan.refresh`, after storing the decision: `not_sensitive` adds the value to the allow-list (keyed fingerprint), `company_rule` saves it as a rule (`match`: normalized, exact or case_insensitive; category `CONFIDENTIAL_TERM` by default). Refused with `cannot_teach_credential` for credentials and `cannot_teach_rule_match` for company-rule matches |
 | `scan.discard` | yes | `{scan_id}` | `{ok, discarded}` |
+| `allowlist.status` | yes | `{}` | `{count}` |
+| `allowlist.clear` | yes | `{}` | `{ok, count: 0}`: every "not sensitive" value is flagged again |
 | `sanitize.run` | yes (cancellable) | `{scan_id, strip_metadata?: bool}` (uses the scan's current decisions) | `{artifact_id, file_name, format, size_bytes, replaced{MASK,REDACT,GENERALIZE}, removed[{label,count}], vault{entries,stored,protection}, verified: false, duration_ms}`; fails with `blocked_findings` while any BLOCK remains, `file_changed` if the original changed since the scan |
 | `sanitize.discard` | yes | `{artifact_id}` | `{ok, discarded}` (the vault record stays) |
 | `vault.restore` | yes | `{artifact_id, text}` | `{text, restored}`: the only method that returns original values, on this explicit request; unknown placeholders are left unchanged |
@@ -59,9 +63,9 @@ The host restarts a crashed engine on the next request, at most 3 restarts per
 | `vault.status` | yes | `{}` | `{protection: dpapi \| file \| memory, records}` |
 | `verify.run` | Phase 7 | `{artifact_id}` | `{passed, original_count, remaining_count, remaining[]}` |
 | `export.save` / `export.text` | Phase 7 | `{artifact_id, destination}` / `{artifact_id}` | `{ok}` / `{text}` (sanitized only) |
-| `profiles.list` | yes | `{}` | `{profiles[], default_id, entity_types[], actions[], mask_styles[]}`; each profile lists the action and its source for every entity type |
+| `profiles.list` | yes | `{}` | `{profiles[], default_id, entity_types[], actions[], mask_styles[]}`; each profile lists `{action, source, style}` for every entity type |
 | `profiles.create` | yes | `{name, base_id}` | `{profile}` |
-| `profiles.update` | yes | `{id, name?, actions?: {entity_type: action \| null}, min_confidence?, mask_style?}` | `{profile}` (built-ins are refused) |
+| `profiles.update` | yes | `{id, name?, actions?: {entity_type: action \| null}, styles?: {entity_type: mask_style \| null}, min_confidence?, mask_style?}` | `{profile}` (built-ins are refused; `partial` is refused for credentials) |
 | `profiles.delete` | yes | `{id}` | `{ok, default_id}` |
 | `profiles.set_default` | yes | `{id}` | `{ok, default_id}` |
 | `rules.list` | yes | `{}` | `{rules[], categories[], kinds[], actions[]}` |
@@ -73,7 +77,12 @@ The host restarts a crashed engine on the next request, at most 3 restarts per
 A finding in `scan.start` is `{id, entity_type, entity_label, category,
 severity, confidence, detector, corroborated_by[], rule_id, preview,
 location: {kind, label}, hidden, value_group, action, effective_action, reason,
-overridden, covered_by, generalizable, high_risk}`. `action` is the decision
+overridden, covered_by, generalizable, high_risk, mask_style, partial_available,
+explanation}`. `explanation` names the rule that matched (a checksum, a
+format, a context word, a company rule, the language model), never the value.
+`mask_style` is `typed_placeholder`, `placeholder`, `synthetic` or `partial`
+(keeps a recognisable part such as the last 4 digits; not reversible, never
+for credentials). `action` is the decision
 for the finding itself; `effective_action` is what applies after overlapping
 findings merge (`covered_by` names the finding that decided the region).
 `policy` is `{profile, actions{ALLOW..BLOCK}, regions, blocked, overridden,
@@ -82,8 +91,15 @@ ready}`. An override that keeps (`ALLOW`) a `high_risk` finding fails with
 `value_group` groups repeats of the same value within one scan without
 revealing it. `summary` holds totals by severity, category and entity type,
 the hidden count and detector status (`ner`: used, disabled, unavailable or
-partial). At most 2,000 findings are listed per response; the summary
-always counts all of them. Risk scoring arrives in Phase 6.
+partial); each `by_category` entry is `{category, count, distinct,
+max_severity, actions{...}}`. At most 2,000 findings are listed per response;
+the summary always counts all of them.
+
+`risk` is `{before, after}`, each `{score (0-100), level (none, low, medium,
+high, critical), factors[{id, label, points, detail}]}`. `before` scores the
+document as it is; `after` scores what the protected copy would still share
+(findings kept, plus anything still blocked). See ARCHITECTURE.md, "Risk
+score".
 
 Rule text is returned only by `rules.*` (it is the user's own input for the
 rules screen). It is never logged and never echoed in error messages.

@@ -316,6 +316,65 @@ sanitize.run(scan_id)
   in the UI, session-scoped mappings and `PERSON_001`-style placeholders are
   Phase 12 ([REVERSIBLE_MASKING.md](REVERSIBLE_MASKING.md)).
 
+## 5e. Privacy report and teaching Airlock (Phase 6)
+
+**Risk score** (`risk/scorer.py`). A deterministic 0-100 score that is a plain
+sum of named, capped factors, so every point can be shown:
+
+| Factor | First value | Each further value | Cap |
+| --- | --- | --- | --- |
+| Passwords, keys and tokens | 40 | 5 | 60 |
+| Government ids | 25 | 5 | 40 |
+| Card, bank and account details | 20 | 4 | 35 |
+| Company-confidential terms (rule matches) | 15 | 3 | 30 |
+| Personal contact details | 8 | 1 | 20 |
+| Internal systems, addresses, business details | 6 | 1 | 15 |
+| Names, places and amounts (language model) | 3 | 0.5 | 10 |
+| Sensitive data in hidden parts | 10 | — | 10 |
+| 50 or more distinct values | 10 | — | 10 |
+| Content Airlock could not read | 5 | — | 5 |
+
+Values are counted once (repeats of the same value do not add points) and
+each finding counts in the first factor it matches. Levels: 0 none, 1-24 low,
+25-49 medium, 50-74 high, 75+ critical. Two scores are reported: **before**
+(the document as it is) and **after** (what the protected copy would still
+share: findings set to Keep, plus anything still blocked, which counts until
+resolved). Unreadable content counts only before, because protected copies
+remove it. There is no model, randomness or hidden weight: the same findings
+always give the same score.
+
+**Explanations** (`detectors/explain.py`). Each finding carries a reason that
+names the rule that matched: "A 12-digit number that passes the Aadhaar
+checksum (Verhoeff).", "Matches one of your company rules, ignoring case,
+accents and separators.", "The on-device language model recognised this as a
+person name.", plus the other detectors that agreed. Reasons never contain the
+value. The policy reason ("Company Default masks government ids.") stays a
+separate line.
+
+**Partial masking.** A fourth mask style, `partial`, keeps a recognisable part:
+the last 4 letters or digits of ids and numbers (separators kept), initials for
+names, the first letter and the domain for e-mail addresses. It is not
+reversible (nothing goes to the vault) and is never offered for credentials.
+It can be chosen per finding (`scan.override`) or per entity type in a custom
+profile (`profile_styles`, schema v3).
+
+**Teach Airlock.** From a finding the user can say:
+
+* *It's not sensitive*: the value goes on the allow-list as a keyed
+  HMAC-SHA-256 fingerprint (key wrapped by DPAPI), and is never flagged again.
+* *Always protect it*: the value becomes a company rule (`normalized` match,
+  category Confidential term), enforced in every profile.
+
+Both refresh the open scan: `scan.refresh` runs detection again on the text
+already in memory (the file is not reopened) with the current rules,
+allow-list and profile, and carries the user's decisions over to the same
+values (findings are matched by type and value, not by id). Credentials can
+never be taught (they would otherwise be stored), and company-rule matches are
+managed through the rule itself so the allow-list cannot silently undo a rule.
+The Settings screen lists and edits company rules, duplicates and edits
+profiles (action and mask style per data type, default profile) and can
+forget the whole allow-list; closing it refreshes the open scan.
+
 ## 6. Data model
 
 ### 6.1 In-memory (engine)
@@ -402,7 +461,9 @@ CREATE TABLE license (               -- cache of the verified licence (host-owne
 ```
 
 Implemented in `engine/src/airlock_engine/storage/db.py` (migration v1;
-v2 adds `base_id`, `min_confidence` and `mask_style` to `privacy_profiles`).
+v2 adds `base_id`, `min_confidence` and `mask_style` to `privacy_profiles`;
+v3 adds `profile_styles (profile_id, entity_type, mask_style)` for per-type
+mask styles in custom profiles).
 Two deviations from the sketch above: `custom_rules` also has `updated_at`,
 and `allow_list` is unique on `(value_hmac, entity_type)` rather than on the
 hash alone, so a value can be allowed as one type but not another. The engine

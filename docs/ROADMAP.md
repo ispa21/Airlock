@@ -11,8 +11,8 @@ done when its exit criteria pass on a real run, not when it compiles.
 | 3 | Detection | Regex detectors with checksums (Email, Phone, PAN, Aadhaar, GSTIN, bank account, IFSC, card, IP, URL); secret detectors; spaCy NER provider; company rules (exact, case-insensitive, normalized, alias, regex); SQLite storage; quality gates | ✅ Done |
 | 4 | Policy | Profiles, entity → action mapping, defaults (credentials → BLOCK), overlap resolution, user overrides | ✅ Done |
 | 5 | Masking | Redaction, placeholder, typed placeholder, synthetic replacement, generalisation, reversible encrypted vault (DPAPI + AES-GCM), adapter `sanitize` for each format | ✅ Done |
-| 6 | Privacy report (next) | Category summary, deterministic explainable risk, per-finding detector/confidence/action, partial masking, "teach Airlock" flow | |
-| 7 | Verification and export | Re-extract the produced artifact, rescan, residual-value check, raw OOXML sweep, block on failure, safe export, AI-safe copy | |
+| 6 | Privacy report | Category summary, deterministic explainable risk, per-finding detector/confidence/action, partial masking, "teach Airlock" flow | ✅ Done |
+| 7 | Verification and export (next) | Re-extract the produced artifact, rescan, residual-value check, raw OOXML sweep, block on failure, safe export, AI-safe copy | |
 | 8 | Windows packaging | PyInstaller onedir engine, NSIS installer, WebView2 strategy, code signing, firewall rule option, tauri-driver E2E on Windows, clean-VM DoD run | |
 | 9 | Right-click integration | "Protect with Airlock" verb (HKCU), single-instance hand-off of the file path | |
 | 10 | Lifetime licensing | Ed25519 signed licences, offline import, online activation (isolated from the engine), local verification | |
@@ -210,3 +210,42 @@ until Phase 8 bundles a broader font; Excel may repair pivot caches whose
 numeric items became text; the restore UI is part of Phase 12; the copy is
 not yet verified or saveable (Phase 7).
 
+## Phase 6 verification log
+
+* Risk: a deterministic 0-100 score as a sum of named, capped factors
+  (ARCHITECTURE.md §5e), shown twice: the document as it is, and what the
+  protected copy would still share (kept findings plus anything still
+  blocked). "Why this score?" lists every factor with its points and a
+  content-free detail ("3 distinct values found 3 times").
+* Report: findings grouped by category (count, distinct values, highest
+  severity, what will happen to them); every finding explains which rule
+  matched (checksum, format, context word, company rule, language model) and
+  which other detectors agreed, next to the policy reason.
+* Partial masking: a fourth mask style that keeps the last 4 letters or
+  digits, initials, or an e-mail's first letter and domain. Per finding
+  ("Mask partly") or per data type in a custom profile (schema v3
+  `profile_styles`). Not reversible; never for credentials.
+* Teach Airlock: "It's not sensitive" (allow-list fingerprint) or "Always
+  protect it" (company rule) from any finding except credentials and
+  company-rule matches; the open scan refreshes on the text already in memory
+  and keeps the user's decisions. Settings screen: company rules (add, turn
+  on/off, delete), profiles (duplicate a built-in, rename, action and mask
+  style per data type, make default, delete), and "Forget all" for the
+  allow-list; closing it refreshes the open scan.
+* Engine 404 tests (+1 IPv6 and 1 Windows-only DPAPI case skipped here), host
+  13 tests, UI 30 tests; ruff, ruff format, mypy `--strict` (also for
+  `win32`), clippy clean.
+* Real app (Linux, Xvfb), on the Phase 5 data folder: schema migrated v2 → v3
+  in place; the DOCX scored 100 (critical) as it is and 73 (high) for the
+  protected copy while the token was still blocked, with the breakdown
+  matching the findings; six category cards; "Teach Airlock → It's not
+  sensitive" on the bank account number removed it (12 → 11 findings) with
+  a confirmation in the report; Settings listed the existing company rule,
+  showed the built-in profile read-only and duplicated it into an editable
+  copy. Originals byte-identical; the log held only allowlisted events
+  (`airlock_taught` with `status: not_sensitive`); no document value in the
+  log or the database; no processes left after closing.
+
+Not in this phase: editing a profile's confidence threshold or adding custom
+categories from the UI (`profiles.update` and `rules.add_category` exist);
+restoring AI responses (Phase 12).

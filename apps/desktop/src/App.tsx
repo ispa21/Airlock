@@ -3,8 +3,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { DropZone, type Selection } from "./components/DropZone";
 import { ErrorNotice } from "./components/ErrorNotice";
 import { ExtractionReport } from "./components/ExtractionReport";
-import { FindingsReport, type ActionHandler } from "./components/FindingsReport";
+import { FindingsReport, type ActionHandler, type TeachHandler } from "./components/FindingsReport";
 import { ProtectedCopy, type CopyState } from "./components/ProtectedCopy";
+import { RiskCard } from "./components/RiskCard";
+import { Settings } from "./components/Settings";
 import { AirlockMark, ChevronIcon } from "./components/icons";
 import { ScanProgress } from "./components/ScanProgress";
 import { TrustBar } from "./components/TrustBar";
@@ -13,6 +15,7 @@ import {
   toEngineError,
   type EngineError,
   type EngineState,
+  type Override,
   type PolicyUpdate,
   type Progress,
   type ScanResult,
@@ -46,6 +49,10 @@ export function App() {
   const [profile, setProfile] = useState(FALLBACK_PROFILES[0]!.id);
   const [applying, setApplying] = useState(false);
   const [copy, setCopy] = useState<CopyState>({ status: "none" });
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  // Confirms a "Teach Airlock" step or a refresh, next to the findings.
+  const [findingsNote, setFindingsNote] = useState<string | null>(null);
+  const [profilesVersion, setProfilesVersion] = useState(0);
   const copyTag = useRef<string | null>(null);
   // Ignore results from work that a newer file selection replaced.
   const latestRequest = useRef(0);
@@ -74,13 +81,16 @@ export function App() {
       .then((list) => {
         if (cancelled || list.profiles.length === 0) return;
         setProfiles(list.profiles.map((p) => ({ id: p.id, label: p.name })));
-        setProfile(list.default_id);
+        // Keep the user's choice unless it was deleted in Settings.
+        setProfile((current) =>
+          profilesVersion > 0 && list.profiles.some((p) => p.id === current) ? current : list.default_id,
+        );
       })
       .catch(() => undefined); // keep the fallback; scanning still works
     return () => {
       cancelled = true;
     };
-  }, [engine.state, platform]);
+  }, [engine.state, platform, profilesVersion]);
 
   const stopRunningScan = useCallback(() => {
     if (copyTag.current) void platform.cancel(copyTag.current).catch(() => undefined);
@@ -154,6 +164,7 @@ export function App() {
     setError(null);
     setNotice(null);
     setCopy({ status: "none" });
+    setFindingsNote(null);
     setScan({ status: "running", tag, progress: null });
     try {
       const result = await platform.scan(selection.path, profile, tag, (progress) => {
@@ -189,20 +200,28 @@ export function App() {
       current.status === "done" && current.result.scan_id === update.scan_id
         ? {
             status: "done",
-            result: { ...current.result, findings: update.findings, summary: update.summary, policy: update.policy },
+            result: {
+              ...current.result,
+              findings: update.findings,
+              summary: update.summary,
+              policy: update.policy,
+              risk: update.risk,
+            },
           }
         : current,
     );
   }, [platform]);
 
   const policyCall = useCallback(
-    async (call: () => Promise<PolicyUpdate>) => {
+    async (call: () => Promise<PolicyUpdate>): Promise<boolean> => {
       setApplying(true);
       setError(null);
       try {
         applyUpdate(await call());
+        return true;
       } catch (err) {
         setError(toEngineError(err));
+        return false;
       } finally {
         setApplying(false);
       }
@@ -219,11 +238,43 @@ export function App() {
   );
 
   const changeAction: ActionHandler = useCallback(
-    (finding, action, acknowledgeRisk) => {
+    (finding, action, acknowledgeRisk, maskStyle) => {
       if (scan.status !== "done") return;
-      void policyCall(() =>
-        platform.override(scan.result.scan_id, [{ value_group: finding.value_group, action }], acknowledgeRisk),
-      );
+      const entry: Override = { value_group: finding.value_group, action };
+      if (maskStyle) entry.mask_style = maskStyle;
+      void policyCall(() => platform.override(scan.result.scan_id, [entry], acknowledgeRisk));
+    },
+    [platform, policyCall, scan],
+  );
+
+  const teach: TeachHandler = useCallback(
+    (finding, kind) => {
+      if (scan.status !== "done") return;
+      setFindingsNote(null);
+      void policyCall(() => platform.teach(scan.result.scan_id, finding.id, kind)).then((ok) => {
+        if (!ok) return;
+        setFindingsNote(
+          kind === "not_sensitive"
+            ? "Airlock won't flag this value again, in any document. You can undo this in Settings."
+            : "Saved as a company rule. Airlock will protect this value in every document.",
+        );
+      });
+    },
+    [platform, policyCall, scan],
+  );
+
+  const closeSettings = useCallback(
+    (changed: boolean) => {
+      setSettingsOpen(false);
+      if (!changed) return;
+      setProfilesVersion((v) => v + 1);
+      // Re-check the open scan with the new rules, allow-list and profile.
+      if (scan.status === "done") {
+        const scanId = scan.result.scan_id;
+        void policyCall(() => platform.refresh(scanId)).then((ok) => {
+          if (ok) setFindingsNote("Results updated with your new settings.");
+        });
+      }
     },
     [platform, policyCall, scan],
   );
@@ -270,65 +321,88 @@ export function App() {
         <header className="brand">
           <AirlockMark />
           <span className="wordmark">AIRLOCK</span>
+          {!settingsOpen && (
+            <button
+              type="button"
+              className="ghost brand__settings"
+              disabled={engine.state !== "ready" || scan.status === "running" || copy.status === "running"}
+              onClick={() => setSettingsOpen(true)}
+            >
+              Settings
+            </button>
+          )}
         </header>
 
-        <section className="hero">
-          <h1>The privacy layer between your data and&nbsp;AI.</h1>
-          <p>Protect sensitive data before sending it to AI.</p>
-        </section>
-
-        <DropZone
-          selection={selection}
-          hovering={hovering}
-          disabled={engine.state === "unavailable"}
-          onBrowse={() => void browse()}
-          onClear={clear}
-        />
-
-        {error && <ErrorNotice error={error} />}
-        {notice && !error && <p className="inline-note">{notice}</p>}
-
-        {scan.status === "running" ? (
-          <ScanProgress progress={scan.progress} onCancel={cancelScan} />
+        {settingsOpen ? (
+          <Settings onClose={closeSettings} />
         ) : (
-          <div className="controls">
-            <label className="field">
-              <span className="field__label">Privacy Profile</span>
-              <span className="select">
-                <select value={profile} disabled={applying} onChange={(e) => changeProfile(e.target.value)}>
-                  {profiles.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.label}
-                    </option>
-                  ))}
-                </select>
-                <ChevronIcon className="select__chevron" />
-              </span>
-            </label>
-
-            <button type="button" className="primary" disabled={!canScan} onClick={() => void startScan()}>
-              {scan.status === "done" ? "Scan Again" : "Scan Document"}
-            </button>
-            {verified && !verified.scannable && (
-              <p className="inline-note" data-testid="scan-hint">
-                Airlock recognises this file type but cannot scan it yet.
-              </p>
-            )}
-          </div>
-        )}
-
-        {scan.status === "done" && (
           <>
-            <FindingsReport result={scan.result} onAction={changeAction} busy={applying || copy.status === "running"} />
-            {scan.result.summary.total > 0 && (
-              <ProtectedCopy
-                state={copy}
-                policy={scan.result.policy}
-                onCreate={() => void createCopy()}
-                onCancel={cancelCopy}
-              />
+            <section className="hero">
+              <h1>The privacy layer between your data and&nbsp;AI.</h1>
+              <p>Protect sensitive data before sending it to AI.</p>
+            </section>
+
+            <DropZone
+              selection={selection}
+              hovering={hovering}
+              disabled={engine.state === "unavailable"}
+              onBrowse={() => void browse()}
+              onClear={clear}
+            />
+
+            {error && <ErrorNotice error={error} />}
+            {notice && !error && <p className="inline-note">{notice}</p>}
+
+            {scan.status === "running" ? (
+              <ScanProgress progress={scan.progress} onCancel={cancelScan} />
+            ) : (
+              <div className="controls">
+                <label className="field">
+                  <span className="field__label">Privacy Profile</span>
+                  <span className="select">
+                    <select value={profile} disabled={applying} onChange={(e) => changeProfile(e.target.value)}>
+                      {profiles.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.label}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronIcon className="select__chevron" />
+                  </span>
+                </label>
+
+                <button type="button" className="primary" disabled={!canScan} onClick={() => void startScan()}>
+                  {scan.status === "done" ? "Scan Again" : "Scan Document"}
+                </button>
+                {verified && !verified.scannable && (
+                  <p className="inline-note" data-testid="scan-hint">
+                    Airlock recognises this file type but cannot scan it yet.
+                  </p>
+                )}
+              </div>
             )}
-            <ExtractionReport summary={scan.result.extraction} />
+
+            {scan.status === "done" && (
+              <>
+                {scan.result.summary.total > 0 && <RiskCard risk={scan.result.risk} />}
+                <FindingsReport
+                  result={scan.result}
+                  onAction={changeAction}
+                  onTeach={teach}
+                  note={findingsNote}
+                  busy={applying || copy.status === "running"}
+                />
+                {scan.result.summary.total > 0 && (
+                  <ProtectedCopy
+                    state={copy}
+                    policy={scan.result.policy}
+                    onCreate={() => void createCopy()}
+                    onCancel={cancelCopy}
+                  />
+                )}
+                <ExtractionReport summary={scan.result.extraction} />
+              </>
+            )}
           </>
         )}
 

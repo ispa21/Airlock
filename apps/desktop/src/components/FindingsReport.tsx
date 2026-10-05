@@ -1,6 +1,15 @@
 import { useState } from "react";
 
-import type { CategoryGroup, Finding, PolicyAction, ScanResult, SeverityLabel } from "../engine/types";
+import type {
+  CategoryGroup,
+  CategorySummary,
+  Finding,
+  MaskStyle,
+  PolicyAction,
+  ScanResult,
+  SeverityLabel,
+  TeachKind,
+} from "../engine/types";
 import { AlertIcon } from "./icons";
 
 export const CATEGORY_LABELS: Record<CategoryGroup, string> = {
@@ -53,28 +62,63 @@ export const ACTION_LABELS: Record<PolicyAction, string> = {
 };
 const ACTION_ORDER: PolicyAction[] = ["MASK", "REDACT", "GENERALIZE", "BLOCK", "ALLOW"];
 
-export type ActionHandler = (finding: Finding, action: PolicyAction | null, acknowledgeRisk: boolean) => void;
+export type ActionHandler = (
+  finding: Finding,
+  action: PolicyAction | null,
+  acknowledgeRisk: boolean,
+  maskStyle?: MaskStyle,
+) => void;
+
+export type TeachHandler = (finding: Finding, kind: TeachKind) => void;
+
+/** Select value for "Mask, partly hidden". */
+const PARTIAL = "MASK:partial";
+
+function selectValue(finding: Finding): string {
+  return finding.action === "MASK" && finding.mask_style === "partial" ? PARTIAL : finding.action;
+}
 
 function FindingRow({
   finding,
   onAction,
+  onTeach,
   busy,
 }: {
   finding: Finding;
   onAction?: ActionHandler | undefined;
+  onTeach?: TeachHandler | undefined;
   busy: boolean;
 }) {
   const [confirming, setConfirming] = useState(false);
+  const [teaching, setTeaching] = useState(false);
   const choose = (value: string) => {
     if (!onAction) return;
+    if (value === PARTIAL) {
+      onAction(finding, "MASK", false, "partial");
+      return;
+    }
     const action = value === "" ? null : (value as PolicyAction);
     if (action === "ALLOW" && finding.high_risk) {
       setConfirming(true);
       return;
     }
+    // Leaving "partly hidden" for a plain mask needs the style named explicitly,
+    // in case the profile itself asks for partial masking.
+    if (action === "MASK" && finding.mask_style === "partial") {
+      onAction(finding, "MASK", false, "typed_placeholder");
+      return;
+    }
     onAction(finding, action, false);
   };
+  const teach = (kind: TeachKind) => {
+    setTeaching(false);
+    onTeach?.(finding, kind);
+  };
   const covered = finding.covered_by !== null && finding.effective_action !== finding.action;
+  // Passwords, keys and tokens are never remembered by Airlock, and company-rule
+  // matches are managed through the rule itself (Settings).
+  const teachable =
+    onTeach !== undefined && finding.category !== "CREDENTIALS" && !finding.detector.startsWith("custom.");
   return (
     <li className="finding" data-severity={finding.severity} data-action={finding.effective_action}>
       <span className={`sev sev--${finding.severity}`}>{SEVERITY_LABELS[finding.severity]}</span>
@@ -93,22 +137,66 @@ function FindingRow({
         <select
           aria-label={`Action for ${finding.entity_label} ${finding.id}`}
           className={`action action--${finding.action.toLowerCase()}`}
-          value={finding.action}
+          value={selectValue(finding)}
           disabled={!onAction || busy}
           onChange={(e) => choose(e.target.value)}
         >
-          {ACTION_ORDER.filter((a) => a !== "GENERALIZE" || finding.generalizable).map((a) => (
+          {ACTION_ORDER.filter((a) => a !== "GENERALIZE" || finding.generalizable).flatMap((a) => [
             <option key={a} value={a}>
               {ACTION_LABELS[a]}
-            </option>
-          ))}
+            </option>,
+            ...(a === "MASK" && finding.partial_available
+              ? [
+                  <option key={PARTIAL} value={PARTIAL}>
+                    Mask partly
+                  </option>,
+                ]
+              : []),
+          ])}
           {finding.overridden && <option value="">Reset to profile</option>}
         </select>
       </span>
+      <p className="finding__why">
+        {finding.explanation}
+        {teachable && !teaching && (
+          <>
+            {" "}
+            <button
+              type="button"
+              className="link finding__teach-link"
+              disabled={busy}
+              aria-label={`Teach Airlock about ${finding.entity_label} ${finding.id}`}
+              onClick={() => setTeaching(true)}
+            >
+              Teach Airlock
+            </button>
+          </>
+        )}
+      </p>
       <p className="finding__reason">
         {finding.reason}
         {covered && ` Part of a larger finding that is set to ${ACTION_LABELS[finding.effective_action].toLowerCase()}.`}
       </p>
+      {teaching && (
+        <div className="finding__teach" role="group" aria-label={`Teach Airlock about ${finding.entity_label}`}>
+          <p className="finding__teach-title">Remember this for every document?</p>
+          <div className="finding__teach-actions">
+            <button type="button" className="ghost" onClick={() => teach("not_sensitive")}>
+              It's not sensitive
+            </button>
+            <button type="button" className="ghost" onClick={() => teach("company_rule")}>
+              Always protect it
+            </button>
+            <button type="button" className="ghost" onClick={() => setTeaching(false)}>
+              Cancel
+            </button>
+          </div>
+          <p className="report__foot">
+            "Not sensitive" keeps only a one-way fingerprint of the value. "Always protect" saves it as a company rule
+            on this device. You can undo either in Settings.
+          </p>
+        </div>
+      )}
       {confirming && (
         <div className="finding__confirm" role="alertdialog" aria-label="Confirm keeping this finding">
           <span>
@@ -133,13 +221,50 @@ function FindingRow({
   );
 }
 
+const ACTION_PAST: Record<PolicyAction, string> = {
+  ALLOW: "kept",
+  MASK: "masked",
+  REDACT: "redacted",
+  GENERALIZE: "generalised",
+  BLOCK: "blocked",
+};
+
+function CategoryCard({ row, types }: { row: CategorySummary; types: ScanResult["summary"]["by_entity"] }) {
+  const actions = ACTION_ORDER.filter((a) => (row.actions[a] ?? 0) > 0)
+    .map((a) => `${number.format(row.actions[a] ?? 0)} ${ACTION_PAST[a]}`)
+    .join(" · ");
+  return (
+    <li className="category" data-category={row.category}>
+      <span className="category__head">
+        <span className="category__name">{CATEGORY_LABELS[row.category] ?? row.category}</span>
+        <span className={`sev sev--${row.max_severity}`}>{SEVERITY_LABELS[row.max_severity]}</span>
+      </span>
+      <span className="category__count">
+        {plural(row.count, "finding")} · {plural(row.distinct, "value")}
+      </span>
+      <span className="category__types">
+        {types
+          .filter((t) => t.category === row.category)
+          .map((t) => `${t.label} ${number.format(t.count)}`)
+          .join(" · ")}
+      </span>
+      {actions && <span className="category__actions">{actions}</span>}
+    </li>
+  );
+}
+
 export function FindingsReport({
   result,
   onAction,
+  onTeach,
+  note = null,
   busy = false,
 }: {
   result: ScanResult;
   onAction?: ActionHandler | undefined;
+  onTeach?: TeachHandler | undefined;
+  /** Confirmation of the last "Teach Airlock" step or refresh. */
+  note?: string | null;
   busy?: boolean;
 }) {
   const [showAll, setShowAll] = useState(false);
@@ -152,6 +277,11 @@ export function FindingsReport({
         <h2 id="findings-title">What Airlock found</h2>
         <span className="report__meta">Checked on this device in {(result.detection_ms / 1000).toFixed(1)} s</span>
       </header>
+      {note && (
+        <p className="report__callout" role="status">
+          {note}
+        </p>
+      )}
 
       {summary.total === 0 ? (
         <p className="findings__none">No sensitive data was found by the detectors that ran.</p>
@@ -197,21 +327,15 @@ export function FindingsReport({
             </p>
           )}
 
-          <ul className="report__parts" aria-label="Findings by type">
-            {summary.by_entity.map((row) => (
-              <li key={row.entity_type} className="report__part">
-                <span className="report__label">
-                  {row.label}
-                  <span className="report__group">{CATEGORY_LABELS[row.category] ?? row.category}</span>
-                </span>
-                <span className="report__count">{number.format(row.count)}</span>
-              </li>
+          <ul className="categories" aria-label="Findings by category">
+            {summary.by_category.map((row) => (
+              <CategoryCard key={row.category} row={row} types={summary.by_entity} />
             ))}
           </ul>
 
           <ul className="findings__list" aria-label="Findings">
             {rows.map((f) => (
-              <FindingRow key={f.id} finding={f} onAction={onAction} busy={busy} />
+              <FindingRow key={f.id} finding={f} onAction={onAction} onTeach={onTeach} busy={busy} />
             ))}
           </ul>
           {!showAll && findings.length > INITIAL_ROWS && (
@@ -247,7 +371,8 @@ export function FindingsReport({
         </p>
       )}
       <p className="report__foot">
-        Previews are partly hidden on purpose. A change applies to every place the same value appears.
+        Previews are partly hidden on purpose. A change applies to every place the same value appears. "Mask partly"
+        keeps a recognisable part, such as the last four digits; it cannot be turned back into the original.
       </p>
     </section>
   );

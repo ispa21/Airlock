@@ -9,10 +9,16 @@ import type {
   Finding,
   FormatFamily,
   InspectResult,
+  MaskStyle,
+  NewRule,
   Override,
   PolicyAction,
   PolicySummary,
+  PolicyUpdate,
+  Profile,
   Progress,
+  RiskSummary,
+  Rule,
   SanitizeResult,
   ScanResult,
 } from "./types";
@@ -52,8 +58,25 @@ const PREVIEW_SUMMARY: ExtractSummary = {
 
 type RawFinding = Omit<
   Finding,
-  "action" | "effective_action" | "reason" | "overridden" | "covered_by" | "generalizable" | "high_risk"
+  | "action"
+  | "effective_action"
+  | "reason"
+  | "overridden"
+  | "covered_by"
+  | "generalizable"
+  | "high_risk"
+  | "mask_style"
+  | "partial_available"
+  | "explanation"
 >;
+
+const EXPLANATIONS: Record<string, string> = {
+  API_KEY: "Matches the format of a GitHub access token.",
+  AADHAAR: "A 12-digit number that passes the Aadhaar checksum (Verhoeff).",
+  INTERNAL_PROJECT: "Matches one of your company rules, ignoring case, accents and separators.",
+  EMAIL: "Has the form of an e-mail address (name@domain).",
+  PERSON: "The on-device language model recognised this as a person name.",
+};
 
 const PROFILE_ACTIONS: Record<string, Record<string, PolicyAction>> = {
   "company-default": { API_KEY: "BLOCK", AADHAAR: "MASK", INTERNAL_PROJECT: "MASK", EMAIL: "MASK", PERSON: "MASK" },
@@ -66,23 +89,51 @@ const PROFILE_NAMES: Record<string, string> = {
   "secrets-and-ids": "Secrets & IDs only",
 };
 let previewProfile = "company-default";
-const previewOverrides = new Map<number, PolicyAction>();
+const previewOverrides = new Map<number, { action: PolicyAction; style?: MaskStyle | undefined }>();
+const previewAllowed = new Set<number>();
+let previewRules: Rule[] = [];
 
-function decide(raw: RawFinding[]): { findings: Finding[]; policy: PolicySummary } {
-  const findings = raw.map((f): Finding => {
-    const override = previewOverrides.get(f.value_group);
-    const action = override ?? PROFILE_ACTIONS[previewProfile]?.[f.entity_type] ?? "MASK";
-    return {
-      ...f,
-      action,
-      effective_action: action,
-      reason: override ? "Changed by you." : `${PROFILE_NAMES[previewProfile]} preview decision.`,
-      overridden: override !== undefined,
-      covered_by: null,
-      generalizable: f.entity_type === "EMAIL",
-      high_risk: f.severity === "critical",
-    };
-  });
+/** Points per kind of data, as the engine's scorer would give for one value each. */
+const PREVIEW_POINTS: Record<string, [string, string, number]> = {
+  API_KEY: ["credentials", "Passwords, keys and tokens", 40],
+  AADHAAR: ["government_ids", "Government ids (PAN, Aadhaar, GSTIN)", 25],
+  INTERNAL_PROJECT: ["company_terms", "Company-confidential terms (your rules)", 15],
+  EMAIL: ["personal", "Personal contact details", 8],
+  PERSON: ["names", "Names, places and amounts (language model)", 3],
+};
+
+function score(findings: Finding[]) {
+  const factors = findings
+    .filter((f) => PREVIEW_POINTS[f.entity_type])
+    .map((f) => {
+      const [id, label, points] = PREVIEW_POINTS[f.entity_type]!;
+      return { id, label, points, detail: "1 distinct value found 1 time" };
+    });
+  const total = Math.min(100, factors.reduce((sum, f) => sum + f.points, 0));
+  const level = total >= 75 ? "critical" : total >= 50 ? "high" : total >= 25 ? "medium" : total ? "low" : "none";
+  return { score: total, level, factors } as RiskSummary["before"];
+}
+
+function decide(raw: RawFinding[]): { findings: Finding[]; policy: PolicySummary; risk: RiskSummary } {
+  const findings = raw
+    .filter((f) => !previewAllowed.has(f.value_group))
+    .map((f): Finding => {
+      const override = previewOverrides.get(f.value_group);
+      const action = override?.action ?? PROFILE_ACTIONS[previewProfile]?.[f.entity_type] ?? "MASK";
+      return {
+        ...f,
+        action,
+        effective_action: action,
+        reason: override ? "Changed by you." : `${PROFILE_NAMES[previewProfile]} preview decision.`,
+        overridden: override !== undefined,
+        covered_by: null,
+        generalizable: f.entity_type === "EMAIL",
+        high_risk: f.severity === "critical",
+        mask_style: override?.style ?? "typed_placeholder",
+        partial_available: f.category !== "CREDENTIALS",
+        explanation: EXPLANATIONS[f.entity_type] ?? "Matches a known format.",
+      };
+    });
   const actions: Record<PolicyAction, number> = { ALLOW: 0, MASK: 0, REDACT: 0, GENERALIZE: 0, BLOCK: 0 };
   for (const f of findings) actions[f.effective_action] += 1;
   return {
@@ -95,14 +146,49 @@ function decide(raw: RawFinding[]): { findings: Finding[]; policy: PolicySummary
       overridden: previewOverrides.size,
       ready: actions.BLOCK === 0,
     },
+    risk: {
+      before: score(findings),
+      after: score(findings.filter((f) => f.effective_action === "ALLOW" || f.effective_action === "BLOCK")),
+    },
   };
 }
 
-const PREVIEW_RAW: { findings: RawFinding[] } & Omit<ScanResult, "findings" | "policy"> = {
+function update(scanId: string): PolicyUpdate {
+  return { scan_id: scanId, summary: PREVIEW_RAW.summary, ...decide(PREVIEW_RAW.findings) };
+}
+
+function previewProfiles(): Profile[] {
+  return Object.entries(PROFILE_NAMES).map(([id, name]) => ({
+    id,
+    name,
+    description: "",
+    builtin: true,
+    base_id: null,
+    default: id === "company-default",
+    min_confidence: 0.6,
+    mask_style: "typed_placeholder",
+    actions: Object.fromEntries(
+      Object.entries(PROFILE_ACTIONS[id] ?? {}).map(([type, action]) => [
+        type,
+        { action, source: "entity", style: "typed_placeholder" as MaskStyle },
+      ]),
+    ),
+  }));
+}
+
+function readOnly(): EngineError {
+  return {
+    kind: "invalid_profile",
+    message: "The browser preview can't save profiles.",
+    next_step: "Run the desktop app to change profiles.",
+    original_affected: false,
+  };
+}
+
+const PREVIEW_RAW: { findings: RawFinding[] } & Omit<ScanResult, "findings" | "policy" | "risk"> = {
   scan_id: "scan_preview",
   extraction: PREVIEW_SUMMARY,
   detection_ms: 420,
-  risk: null,
   findings: [
     {
       id: "f1", entity_type: "API_KEY", entity_label: "API key or token", category: "CREDENTIALS",
@@ -136,8 +222,10 @@ const PREVIEW_RAW: { findings: RawFinding[] } & Omit<ScanResult, "findings" | "p
     total: 5, listed: 5, distinct_values: 5, hidden: 2, max_severity: "critical",
     by_severity: { critical: 2, high: 1, medium: 2, low: 0 },
     by_category: [
-      { category: "PERSONAL", count: 2 }, { category: "CREDENTIALS", count: 1 },
-      { category: "GOVERNMENT", count: 1 }, { category: "INTELLECTUAL_PROPERTY", count: 1 },
+      { category: "PERSONAL", count: 2, distinct: 2, max_severity: "medium", actions: { MASK: 2 } },
+      { category: "CREDENTIALS", count: 1, distinct: 1, max_severity: "critical", actions: { BLOCK: 1 } },
+      { category: "GOVERNMENT", count: 1, distinct: 1, max_severity: "critical", actions: { MASK: 1 } },
+      { category: "INTELLECTUAL_PROPERTY", count: 1, distinct: 1, max_severity: "high", actions: { MASK: 1 } },
     ],
     by_entity: [
       { entity_type: "API_KEY", label: "API key or token", category: "CREDENTIALS", count: 1 },
@@ -195,6 +283,7 @@ export const previewPlatform: Platform = {
   async scan(_path: string, profileId: string, tag: string, onProgress: (progress: Progress) => void): Promise<ScanResult> {
     previewProfile = profileId;
     previewOverrides.clear();
+    previewAllowed.clear();
     cancelled.delete(tag);
     for (let page = 0; page <= 12; page += 1) {
       if (cancelled.has(tag)) {
@@ -212,16 +301,13 @@ export const previewPlatform: Platform = {
   async listProfiles() {
     return {
       default_id: "company-default",
-      profiles: Object.entries(PROFILE_NAMES).map(([id, name]) => ({
-        id,
-        name,
-        description: "",
-        builtin: true,
-        base_id: null,
-        default: id === "company-default",
-        min_confidence: 0.6,
-        mask_style: "typed_placeholder",
-        actions: {},
+      profiles: previewProfiles(),
+      entity_types: PREVIEW_RAW.findings.map((f) => ({
+        id: f.entity_type,
+        label: f.entity_label,
+        category: f.category,
+        company_rule: f.detector.startsWith("custom."),
+        generalizable: f.entity_type === "EMAIL",
       })),
     };
   },
@@ -229,17 +315,88 @@ export const previewPlatform: Platform = {
   async setProfile(scanId: string, profileId: string) {
     previewProfile = profileId;
     await delay(150);
-    return { scan_id: scanId, summary: PREVIEW_RAW.summary, ...decide(PREVIEW_RAW.findings) };
+    return update(scanId);
   },
 
   async override(scanId: string, overrides: Override[]) {
     for (const o of overrides) {
       if (o.value_group === undefined) continue;
       if (o.action === null) previewOverrides.delete(o.value_group);
-      else previewOverrides.set(o.value_group, o.action);
+      else previewOverrides.set(o.value_group, { action: o.action, style: o.mask_style });
     }
     await delay(150);
-    return { scan_id: scanId, summary: PREVIEW_RAW.summary, ...decide(PREVIEW_RAW.findings) };
+    return update(scanId);
+  },
+
+  async refresh(scanId: string) {
+    await delay(300);
+    return update(scanId);
+  },
+
+  async teach(scanId: string, findingId: string, kind) {
+    const finding = PREVIEW_RAW.findings.find((f) => f.id === findingId);
+    if (finding && kind === "not_sensitive") previewAllowed.add(finding.value_group);
+    await delay(300);
+    return update(scanId);
+  },
+
+  async allowListCount() {
+    return previewAllowed.size;
+  },
+
+  async clearAllowList() {
+    previewAllowed.clear();
+  },
+
+  async listRules() {
+    return {
+      rules: previewRules,
+      categories: [
+        { id: "CONFIDENTIAL_TERM", label: "Confidential term", group: "INTELLECTUAL_PROPERTY", severity: 3, builtin: true },
+        { id: "INTERNAL_PROJECT", label: "Internal project", group: "INTELLECTUAL_PROPERTY", severity: 3, builtin: true },
+      ],
+      kinds: ["normalized", "case_insensitive", "exact", "regex"],
+      actions: ["ALLOW", "MASK", "REDACT", "GENERALIZE", "BLOCK"],
+    };
+  },
+
+  async createRule(rule: NewRule) {
+    const now = new Date().toISOString();
+    const created: Rule = {
+      ...rule,
+      id: `rule_${previewRules.length + 1}`,
+      aliases: [],
+      enabled: true,
+      created_at: now,
+      updated_at: now,
+    };
+    previewRules = [...previewRules, created];
+    return created;
+  },
+
+  async updateRule(id: string, changes) {
+    previewRules = previewRules.map((r) => (r.id === id ? { ...r, ...changes } : r));
+    return previewRules.find((r) => r.id === id)!;
+  },
+
+  async deleteRule(id: string) {
+    previewRules = previewRules.filter((r) => r.id !== id);
+  },
+
+  async createProfile() {
+    throw readOnly();
+  },
+
+  async updateProfile() {
+    throw readOnly();
+  },
+
+  async deleteProfile() {
+    throw readOnly();
+  },
+
+  async setDefaultProfile() {
+    throw readOnly();
   },
 
   async discard() {},

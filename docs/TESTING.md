@@ -74,6 +74,20 @@ reasons, and overlap regions (containment, partial and chained overlaps).
 migration; `test_api_policy.py` drives overrides, risk acknowledgement and
 profile switching over RPC and checks no raw value appears in any response.
 
+## Privacy report tests (Phase 6)
+
+`test_risk.py` covers the risk scorer (levels, caps, repeats counted once,
+factor order, hidden/volume/unreadable points, the residual set, determinism),
+detector explanations (every built-in pattern detector has a reason; reasons
+never contain the value) and partial masking (formats per type, never for
+credentials, never stored in the vault). `test_api_teach.py` drives the RPC
+side: explanations and category summaries in a real scan, a partial-mask
+override reaching the protected copy, "not sensitive" then clearing the
+allow-list (no value in the log or database), credentials and company-rule
+matches refused, a company rule taught from a language-model finding with the
+user's earlier choices carried over, per-type mask styles in custom profiles,
+and `scan.refresh` applying an edited (or deleted) profile.
+
 ## Leak tests (Phase 5+) — implemented in `test_api_sanitize.py`
 
 Canary values are seeded into every part of each test document: body,

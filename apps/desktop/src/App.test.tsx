@@ -5,7 +5,17 @@ import { describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import type { DropHandlers, Platform } from "./engine/platform";
 import { PlatformProvider } from "./engine/PlatformContext";
-import type { EngineError, ExtractSummary, InspectResult, Progress, ScanResult } from "./engine/types";
+import type {
+  EngineError,
+  ExtractSummary,
+  InspectResult,
+  PolicyUpdate,
+  Profile,
+  Progress,
+  RiskSummary,
+  RuleList,
+  ScanResult,
+} from "./engine/types";
 
 const INFO = {
   engine_version: "0.1.0",
@@ -44,31 +54,50 @@ const SUMMARY: ExtractSummary = {
   duration_ms: 1_234,
 };
 
+const RISK: RiskSummary = {
+  before: {
+    score: 43,
+    level: "medium",
+    factors: [
+      { id: "government_ids", label: "Government ids (PAN, Aadhaar, GSTIN)", points: 25, detail: "1 distinct value found 1 time" },
+      { id: "personal", label: "Personal contact details", points: 8, detail: "1 distinct value found 1 time" },
+      { id: "hidden", label: "Sensitive data in hidden parts", points: 10, detail: "1 finding in comments" },
+    ],
+  },
+  after: { score: 0, level: "none", factors: [] },
+};
+
 const RESULT: ScanResult = {
   scan_id: "scan_test",
   extraction: SUMMARY,
   detection_ms: 310,
-  risk: null,
+  risk: RISK,
   findings: [
     {
       id: "f1", entity_type: "PAN", entity_label: "PAN (income-tax id)", category: "GOVERNMENT",
       severity: "high", confidence: 0.97, detector: "regex.pan", corroborated_by: [], rule_id: null,
       preview: "AB••••••4F", location: { kind: "comment", label: "Comments · paragraph 1" }, hidden: true,
       value_group: 1, action: "MASK", effective_action: "MASK", reason: "Company Default masks government ids.",
-      overridden: false, covered_by: null, generalizable: false, high_risk: false,
+      overridden: false, covered_by: null, generalizable: false, high_risk: false, mask_style: "typed_placeholder",
+      partial_available: true,
+      explanation: "Has the structure of an Indian PAN: 5 letters, 4 digits, 1 letter, with a valid holder-type letter.",
     },
     {
       id: "f2", entity_type: "EMAIL", entity_label: "E-mail address", category: "PERSONAL",
       severity: "medium", confidence: 0.98, detector: "regex.email", corroborated_by: [], rule_id: null,
       preview: "r••••@example.invalid", location: { kind: "body", label: "Body · paragraph 2" }, hidden: false,
       value_group: 2, action: "MASK", effective_action: "MASK", reason: "Company Default masks personal data.",
-      overridden: false, covered_by: null, generalizable: true, high_risk: false,
+      overridden: false, covered_by: null, generalizable: true, high_risk: false, mask_style: "typed_placeholder",
+      partial_available: true, explanation: "Has the form of an e-mail address (name@domain).",
     },
   ],
   summary: {
     total: 2, listed: 2, distinct_values: 2, hidden: 1, max_severity: "high",
     by_severity: { critical: 0, high: 1, medium: 1, low: 0 },
-    by_category: [{ category: "GOVERNMENT", count: 1 }, { category: "PERSONAL", count: 1 }],
+    by_category: [
+      { category: "GOVERNMENT", count: 1, distinct: 1, max_severity: "high", actions: { MASK: 1 } },
+      { category: "PERSONAL", count: 1, distinct: 1, max_severity: "medium", actions: { MASK: 1 } },
+    ],
     by_entity: [
       { entity_type: "PAN", label: "PAN (income-tax id)", category: "GOVERNMENT", count: 1 },
       { entity_type: "EMAIL", label: "E-mail address", category: "PERSONAL", count: 1 },
@@ -98,6 +127,50 @@ const COPY = {
   duration_ms: 420,
 };
 
+const RULES: RuleList = {
+  rules: [],
+  categories: [
+    { id: "CONFIDENTIAL_TERM", label: "Confidential term", group: "INTELLECTUAL_PROPERTY", severity: 3, builtin: true },
+    { id: "CLIENT_NAME", label: "Client name", group: "BUSINESS", severity: 3, builtin: true },
+  ],
+  kinds: ["exact", "case_insensitive", "normalized", "regex"],
+  actions: ["ALLOW", "MASK", "REDACT", "GENERALIZE", "BLOCK"],
+};
+
+function profileFixture(id: string, name: string, builtin: boolean): Profile {
+  return {
+    id,
+    name,
+    description: "",
+    builtin,
+    base_id: builtin ? null : "company-default",
+    default: id === "company-default",
+    min_confidence: 0.6,
+    mask_style: "typed_placeholder",
+    actions: {
+      EMAIL: { action: "MASK", source: "entity", style: "typed_placeholder" },
+      API_KEY: { action: "BLOCK", source: "category", style: "typed_placeholder" },
+    },
+  };
+}
+
+const ENTITY_TYPES = [
+  { id: "EMAIL", label: "E-mail address", category: "PERSONAL" as const, company_rule: false, generalizable: true },
+  { id: "API_KEY", label: "API key or token", category: "CREDENTIALS" as const, company_rule: false, generalizable: false },
+];
+
+function updateWith(findings: ScanResult["findings"], extra: Partial<PolicyUpdate> = {}): PolicyUpdate {
+  return { scan_id: "scan_test", findings, summary: RESULT.summary, policy: RESULT.policy, risk: RISK, ...extra };
+}
+
+async function scanned(platform: Platform) {
+  renderApp(platform);
+  await userEvent.click(screen.getByRole("button", { name: /drop files here/i }));
+  await screen.findByText("Verified");
+  await userEvent.click(screen.getByRole("button", { name: "Scan Document" }));
+  await screen.findByRole("heading", { name: "What Airlock found" });
+}
+
 function fakePlatform(overrides: Partial<Platform> = {}) {
   let drop: DropHandlers | undefined;
   const platform: Platform = {
@@ -119,6 +192,18 @@ function fakePlatform(overrides: Partial<Platform> = {}) {
     }),
     setProfile: vi.fn(),
     override: vi.fn(),
+    refresh: vi.fn(),
+    teach: vi.fn(),
+    allowListCount: vi.fn().mockResolvedValue(0),
+    clearAllowList: vi.fn().mockResolvedValue(undefined),
+    listRules: vi.fn().mockResolvedValue(RULES),
+    createRule: vi.fn(),
+    updateRule: vi.fn(),
+    deleteRule: vi.fn().mockResolvedValue(undefined),
+    createProfile: vi.fn(),
+    updateProfile: vi.fn(),
+    deleteProfile: vi.fn().mockResolvedValue(undefined),
+    setDefaultProfile: vi.fn().mockResolvedValue(undefined),
     sanitize: vi.fn().mockResolvedValue(COPY),
     discardCopy: vi.fn().mockResolvedValue(undefined),
     cancel: vi.fn().mockResolvedValue(undefined),
@@ -267,7 +352,7 @@ describe("App", () => {
     const changed: ScanResult["findings"] = RESULT.findings.map((f) =>
       f.id === "f2" ? { ...f, action: "REDACT", effective_action: "REDACT", overridden: true, reason: "Changed by you." } : f,
     );
-    const update = { scan_id: "scan_test", findings: changed, summary: RESULT.summary, policy: RESULT.policy };
+    const update = updateWith(changed);
     const { platform } = fakePlatform({
       override: vi.fn().mockResolvedValue(update),
       setProfile: vi.fn().mockResolvedValue(update),
@@ -334,7 +419,7 @@ describe("App", () => {
   });
 
   it("creates a protected copy and discards it when choices change", async () => {
-    const update = { scan_id: "scan_test", findings: RESULT.findings, summary: RESULT.summary, policy: RESULT.policy };
+    const update = updateWith(RESULT.findings);
     const { platform } = fakePlatform({ override: vi.fn().mockResolvedValue(update) });
     renderApp(platform);
     await userEvent.click(screen.getByRole("button", { name: /drop files here/i }));
@@ -441,6 +526,178 @@ describe("App", () => {
     await screen.findByText("Verified");
     await userEvent.click(screen.getByRole("button", { name: "Remove file" }));
     expect(screen.getByText("Drop files here")).toBeInTheDocument();
+  });
+
+  it("shows the risk before and after protection, with the reasons", async () => {
+    const { platform } = fakePlatform();
+    await scanned(platform);
+    const risk = screen.getByRole("region", { name: "Privacy risk" });
+    expect(risk).toHaveTextContent("As it is");
+    expect(screen.getByLabelText("As it is: 43 out of 100, medium")).toBeInTheDocument();
+    expect(screen.getByLabelText("Protected copy: 0 out of 100, none")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Why this score?" }));
+    const factors = screen.getByRole("list", { name: "As it is" });
+    expect(factors).toHaveTextContent("Government ids (PAN, Aadhaar, GSTIN)");
+    expect(factors).toHaveTextContent("+25");
+    expect(screen.getByText("Nothing sensitive would be shared.")).toBeInTheDocument();
+  });
+
+  it("explains each finding and groups findings by category", async () => {
+    const { platform } = fakePlatform();
+    await scanned(platform);
+    expect(screen.getByText("Has the form of an e-mail address (name@domain).")).toBeInTheDocument();
+    const categories = screen.getByRole("list", { name: "Findings by category" });
+    expect(categories).toHaveTextContent("Government IDs");
+    expect(categories).toHaveTextContent("PAN (income-tax id) 1");
+    expect(categories).toHaveTextContent("1 masked");
+  });
+
+  it("can mask a value partly", async () => {
+    const partly = RESULT.findings.map((f) =>
+      f.id === "f2" ? { ...f, mask_style: "partial" as const, overridden: true } : f,
+    );
+    const { platform } = fakePlatform({ override: vi.fn().mockResolvedValue(updateWith(partly)) });
+    await scanned(platform);
+    await userEvent.selectOptions(screen.getByLabelText("Action for E-mail address f2"), "MASK:partial");
+    expect(platform.override).toHaveBeenCalledWith(
+      "scan_test",
+      [{ value_group: 2, action: "MASK", mask_style: "partial" }],
+      false,
+    );
+    expect(await screen.findByLabelText("Action for E-mail address f2")).toHaveValue("MASK:partial");
+    await userEvent.selectOptions(screen.getByLabelText("Action for E-mail address f2"), "MASK");
+    expect(platform.override).toHaveBeenLastCalledWith(
+      "scan_test",
+      [{ value_group: 2, action: "MASK", mask_style: "typed_placeholder" }],
+      false,
+    );
+  });
+
+  it("teaches Airlock that a value is not sensitive", async () => {
+    const remaining = RESULT.findings.filter((f) => f.id !== "f2");
+    const { platform } = fakePlatform({ teach: vi.fn().mockResolvedValue(updateWith(remaining)) });
+    await scanned(platform);
+    await userEvent.click(screen.getByRole("button", { name: "Teach Airlock about E-mail address f2" }));
+    const panel = screen.getByRole("group", { name: "Teach Airlock about E-mail address" });
+    expect(panel).toHaveTextContent("keeps only a one-way fingerprint");
+    await userEvent.click(screen.getByRole("button", { name: "It's not sensitive" }));
+    expect(platform.teach).toHaveBeenCalledWith("scan_test", "f2", "not_sensitive");
+    expect(await screen.findByText(/won't flag this value again/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Action for E-mail address f2")).not.toBeInTheDocument();
+  });
+
+  it("never offers to teach Airlock about credentials", async () => {
+    const token = {
+      ...RESULT.findings[0]!, id: "f9", entity_type: "API_KEY", entity_label: "API key or token",
+      category: "CREDENTIALS" as const, partial_available: false,
+    };
+    const { platform } = fakePlatform({ scan: vi.fn().mockResolvedValue({ ...RESULT, findings: [token] }) });
+    await scanned(platform);
+    expect(screen.queryByRole("button", { name: /Teach Airlock about API key/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Mask partly" })).not.toBeInTheDocument();
+  });
+
+  it("leaves company-rule matches to the rule itself", async () => {
+    const term = {
+      ...RESULT.findings[0]!, id: "f8", entity_type: "INTERNAL_PROJECT", entity_label: "Internal project",
+      category: "INTELLECTUAL_PROPERTY" as const, detector: "custom.normalized", rule_id: "rule_1",
+    };
+    const { platform } = fakePlatform({ scan: vi.fn().mockResolvedValue({ ...RESULT, findings: [term] }) });
+    await scanned(platform);
+    expect(screen.getByLabelText("Action for Internal project f8")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Teach Airlock/ })).not.toBeInTheDocument();
+  });
+
+  it("manages company rules in Settings and refreshes the open scan", async () => {
+    const rule = {
+      id: "rule_1", kind: "normalized" as const, pattern: "Project Falcon", aliases: [],
+      category_id: "CONFIDENTIAL_TERM", action: null, enabled: true, created_at: "", updated_at: "",
+    };
+    const listRules = vi
+      .fn()
+      .mockResolvedValueOnce(RULES)
+      .mockResolvedValue({ ...RULES, rules: [rule] });
+    const { platform } = fakePlatform({
+      listRules,
+      createRule: vi.fn().mockResolvedValue(rule),
+      refresh: vi.fn().mockResolvedValue(updateWith(RESULT.findings)),
+    });
+    await scanned(platform);
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(screen.getByRole("heading", { name: "Company rules" })).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("Word, phrase or pattern"), "Project Falcon");
+    await userEvent.click(screen.getByRole("button", { name: "Add Rule" }));
+    expect(platform.createRule).toHaveBeenCalledWith({
+      kind: "normalized",
+      pattern: "Project Falcon",
+      category_id: "CONFIDENTIAL_TERM",
+      action: null,
+    });
+    expect(await screen.findByRole("list", { name: "Saved company rules" })).toHaveTextContent("Project Falcon");
+
+    await userEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(platform.refresh).toHaveBeenCalledWith("scan_test");
+    expect(await screen.findByText("Results updated with your new settings.")).toBeInTheDocument();
+  });
+
+  it("does not refresh the scan when nothing changed in Settings", async () => {
+    const { platform } = fakePlatform();
+    await scanned(platform);
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(platform.refresh).not.toHaveBeenCalled();
+    expect(screen.getByRole("heading", { name: "What Airlock found" })).toBeInTheDocument();
+  });
+
+  it("duplicates a built-in profile and edits actions and mask styles", async () => {
+    const builtin = profileFixture("company-default", "Company Default", true);
+    const custom = profileFixture("prof_1", "Company Default (copy)", false);
+    const listProfiles = vi
+      .fn()
+      .mockResolvedValueOnce({ default_id: "company-default", profiles: [builtin], entity_types: ENTITY_TYPES })
+      .mockResolvedValueOnce({ default_id: "company-default", profiles: [builtin], entity_types: ENTITY_TYPES })
+      .mockResolvedValue({ default_id: "company-default", profiles: [builtin, custom], entity_types: ENTITY_TYPES });
+    const redacted = {
+      ...custom,
+      actions: { ...custom.actions, EMAIL: { action: "REDACT" as const, source: "override", style: "typed_placeholder" as const } },
+    };
+    const { platform } = fakePlatform({
+      listProfiles,
+      createProfile: vi.fn().mockResolvedValue(custom),
+      updateProfile: vi.fn().mockResolvedValueOnce({
+        ...custom,
+        actions: { ...custom.actions, EMAIL: { action: "MASK", source: "entity", style: "partial" } },
+      }).mockResolvedValueOnce(redacted),
+    });
+    renderApp(platform);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Settings" })).toBeEnabled());
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(await screen.findByLabelText("Action for E-mail address")).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "Duplicate" }));
+    expect(platform.createProfile).toHaveBeenCalledWith("Company Default (copy)", "company-default");
+    await waitFor(() => expect(screen.getByLabelText("Profile to edit")).toHaveValue("prof_1"));
+
+    // Credentials can't be partly masked.
+    const tokenStyle = screen.queryByLabelText("Mask style for API key or token");
+    expect(tokenStyle).toBeNull();
+    const emailStyle = screen.getByLabelText("Mask style for E-mail address");
+    expect(emailStyle).toBeEnabled();
+    await userEvent.selectOptions(emailStyle, "partial");
+    expect(platform.updateProfile).toHaveBeenCalledWith("prof_1", { styles: { EMAIL: "partial" } });
+    await userEvent.selectOptions(screen.getByLabelText("Action for E-mail address"), "REDACT");
+    expect(platform.updateProfile).toHaveBeenLastCalledWith("prof_1", { actions: { EMAIL: "REDACT" } });
+    expect(await screen.findByLabelText("Action for E-mail address")).toHaveValue("REDACT");
+  });
+
+  it("forgets every value marked not sensitive", async () => {
+    const { platform } = fakePlatform({ allowListCount: vi.fn().mockResolvedValue(3) });
+    renderApp(platform);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Settings" })).toBeEnabled());
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(await screen.findByText("3 values")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Forget All" }));
+    expect(platform.clearAllowList).toHaveBeenCalled();
+    expect(await screen.findByText("0 values")).toBeInTheDocument();
   });
 
   it("reports an unavailable engine and retries on request", async () => {

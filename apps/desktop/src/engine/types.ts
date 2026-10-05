@@ -145,6 +145,35 @@ export interface Finding {
   generalizable: boolean;
   /** Keeping it (ALLOW) needs an explicit confirmation. */
   high_risk: boolean;
+  /** How MASK replaces it (placeholder, fake value, partly hidden). */
+  mask_style: MaskStyle;
+  /** Partial masking is offered (never for credentials). */
+  partial_available: boolean;
+  /** Why the detector flagged it: the rule that matched, never the value. */
+  explanation: string;
+}
+
+export type MaskStyle = "typed_placeholder" | "placeholder" | "synthetic" | "partial";
+
+export type RiskLevel = "none" | "low" | "medium" | "high" | "critical";
+
+export interface RiskFactor {
+  id: string;
+  label: string;
+  points: number;
+  detail: string;
+}
+
+export interface RiskScore {
+  score: number;
+  level: RiskLevel;
+  factors: RiskFactor[];
+}
+
+/** Deterministic 0-100 score: the document as it is, and what the protected copy keeps. */
+export interface RiskSummary {
+  before: RiskScore;
+  after: RiskScore;
 }
 
 export type PolicyAction = "ALLOW" | "MASK" | "REDACT" | "GENERALIZE" | "BLOCK";
@@ -166,27 +195,93 @@ export interface Profile {
   base_id: string | null;
   default: boolean;
   min_confidence: number;
-  mask_style: string;
-  actions: Record<string, { action: PolicyAction; source: string }>;
+  mask_style: MaskStyle;
+  actions: Record<string, { action: PolicyAction; source: string; style: MaskStyle }>;
+}
+
+export interface EntityTypeInfo {
+  id: string;
+  label: string;
+  category: CategoryGroup;
+  company_rule: boolean;
+  generalizable: boolean;
 }
 
 export interface ProfileList {
   profiles: Profile[];
   default_id: string;
+  entity_types?: EntityTypeInfo[];
 }
 
-/** Result of `scan.set_profile` and `scan.override`. */
+export interface ProfileChanges {
+  name?: string;
+  actions?: Record<string, PolicyAction | null>;
+  styles?: Record<string, MaskStyle | null>;
+}
+
+export type RuleKind = "exact" | "case_insensitive" | "normalized" | "regex";
+
+/** A company rule. Its text is the user's own, shown only on the rules screen. */
+export interface Rule {
+  id: string;
+  kind: RuleKind;
+  pattern: string;
+  aliases: string[];
+  category_id: string;
+  action: PolicyAction | null;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RuleCategory {
+  id: string;
+  label: string;
+  group: CategoryGroup;
+  severity: number;
+  builtin: boolean;
+}
+
+export interface RuleList {
+  rules: Rule[];
+  categories: RuleCategory[];
+  kinds: RuleKind[];
+  actions: PolicyAction[];
+}
+
+export interface NewRule {
+  kind: RuleKind;
+  pattern: string;
+  category_id: string;
+  action: PolicyAction | null;
+}
+
+/** "Teach Airlock" from a finding. */
+export type TeachKind = "not_sensitive" | "company_rule";
+
+/** Result of `scan.set_profile`, `scan.override`, `scan.refresh` and `scan.teach`. */
 export interface PolicyUpdate {
   scan_id: string;
   findings: Finding[];
   summary: ScanSummary;
   policy: PolicySummary;
+  risk: RiskSummary;
 }
 
 export interface Override {
   finding_id?: string;
   value_group?: number;
   action: PolicyAction | null;
+  mask_style?: MaskStyle;
+}
+
+export interface CategorySummary {
+  category: CategoryGroup;
+  count: number;
+  distinct: number;
+  max_severity: SeverityLabel;
+  /** Effective actions, e.g. { MASK: 3, BLOCK: 1 }. */
+  actions: Partial<Record<PolicyAction, number>>;
 }
 
 export interface ScanSummary {
@@ -196,7 +291,7 @@ export interface ScanSummary {
   hidden: number;
   max_severity: SeverityLabel | null;
   by_severity: Record<SeverityLabel, number>;
-  by_category: { category: CategoryGroup; count: number }[];
+  by_category: CategorySummary[];
   by_entity: { entity_type: string; label: string; category: CategoryGroup; count: number }[];
   detectors: { ner: "used" | "unavailable" | "disabled" | "partial"; company_rules: number; rule_timeouts: number };
   allowed: number;
@@ -210,7 +305,7 @@ export interface ScanResult {
   summary: ScanSummary;
   policy: PolicySummary;
   detection_ms: number;
-  risk: null;
+  risk: RiskSummary;
 }
 
 /** Result of `sanitize.run`: a protected copy waiting for verification (Phase 7). */

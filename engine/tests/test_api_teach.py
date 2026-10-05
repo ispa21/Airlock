@@ -243,6 +243,18 @@ def test_teach_company_rule_and_decisions_carry_over(note: Path, tmp_path: Path)
         (f["action"], f["overridden"]) for f in taught["findings"] if f["entity_type"] == "EMAIL"
     } == {("REDACT", True)}
     assert "company_terms" in {f["id"] for f in taught["risk"]["before"]["factors"]}
+    # A rule match is managed through the rule itself, not taught again.
+    rs = call(
+        registry,
+        req(
+            5,
+            "scan.teach",
+            scan_id=scan_id,
+            finding_id=rule_hit["id"],
+            kind="not_sensitive",
+        ),
+    )
+    assert error_of(rs, 5)["data"]["kind"] == "cannot_teach_rule_match"
     rules = result_of(call(registry, req(4, "rules.list")), 4)["rules"]
     assert [(r["kind"], r["category_id"]) for r in rules] == [("exact", "CONFIDENTIAL_TERM")]
     assert NAME not in json.dumps(taught)
@@ -274,3 +286,20 @@ def test_profile_styles_apply_to_new_scans(note: Path, tmp_path: Path) -> None:
     rs = call(registry, req(7, "profiles.update", id=profile_id, styles={"EMAIL": None}))
     entry = result_of(rs, 7)["profile"]["actions"]["EMAIL"]
     assert entry["style"] == "typed_placeholder"
+
+
+def test_refresh_applies_the_edited_profile(note: Path, tmp_path: Path) -> None:
+    registry = build_registry(tmp_path / "data")
+    rs = call(registry, req(1, "profiles.create", name="Mine", base_id="company-default"))
+    profile_id = result_of(rs, 1)["profile"]["id"]
+    result = result_of(
+        call(registry, req(2, "scan.start", path=str(note), ner=False, profile_id=profile_id)), 2
+    )
+    assert first(result, "IP_ADDRESS")["action"] == "MASK"
+    call(registry, req(3, "profiles.update", id=profile_id, actions={"IP_ADDRESS": "REDACT"}))
+    rs = call(registry, req(4, "scan.refresh", scan_id=result["scan_id"]))
+    assert first(result_of(rs, 4), "IP_ADDRESS")["action"] == "REDACT"
+    # A deleted profile falls back to the default one.
+    call(registry, req(5, "profiles.delete", id=profile_id))
+    rs = call(registry, req(6, "scan.refresh", scan_id=result["scan_id"]))
+    assert result_of(rs, 6)["policy"]["profile"]["id"] == "company-default"

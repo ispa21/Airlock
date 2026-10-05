@@ -293,3 +293,11 @@ def cannot_teach_credential() -> AirlockError:
         "company rules, so they are never stored by Airlock.",
         next_step="To share this one anyway, choose Keep for it in this scan.",
     )
+
+
+def cannot_teach_rule_match() -> AirlockError:
+    return AirlockError(
+        kind="cannot_teach_rule_match",
+        message="This value was found by one of your company rules.",
+        next_step="To stop protecting it, change or turn off the rule in Settings.",
+    )

@@ -103,6 +103,16 @@ def _profile(storage: Storage, profile_id: str | None) -> Profile:
         raise errors.storage_unavailable() from None
 
 
+def _reload(storage: Storage, current: Profile) -> Profile:
+    """The session's profile as stored now: it may have been edited or deleted."""
+    try:
+        return storage.profiles.get(current.id)
+    except ProfileNotFound:
+        return _profile(storage, None)
+    except StorageError:
+        return current
+
+
 def register(
     registry: MethodRegistry, storage: Storage, sessions: SessionStore, artifacts: ArtifactStore
 ) -> None:
@@ -147,6 +157,7 @@ def register(
             session.document, bool(session.meta.get("use_ner", True)), ctx
         )
         with session.lock:
+            session.profile = _reload(storage, session.profile)
             session.replace_outcome(outcome, context.policy())
             session.meta.update(
                 entities=context.entities(), ner_status=ner_status, rule_count=len(context.rules)
@@ -287,8 +298,9 @@ def register(
         return {"scan_id": session.scan_id, **report}
 
     def refresh(params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
-        """Re-run detection on the scanned text (no re-reading of the file),
-        e.g. after company rules changed. The user's decisions carry over."""
+        """Re-run detection on the scanned text (no re-reading of the file)
+        with the current company rules, allow-list and profile, e.g. after
+        settings changed. The user's decisions for this scan carry over."""
         result = refresh_session(get_session(params), ctx)
         safelog.log.info("scan_refreshed", finding_count=result["summary"]["total"])
         return result
@@ -315,6 +327,9 @@ def register(
         )
         if category is Category.CREDENTIALS:
             raise errors.cannot_teach_credential()
+        if d.detector.startswith("custom."):
+            # The rule already decides; the allow-list must not silently undo it.
+            raise errors.cannot_teach_rule_match()
         value = d.matched_value.reveal()
         try:
             if kind == "not_sensitive":

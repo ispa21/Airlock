@@ -8,12 +8,18 @@ import {
   toEngineError,
   type EngineInfo,
   type InspectResult,
+  type NewRule,
   type Override,
   type PolicyUpdate,
+  type Profile,
+  type ProfileChanges,
   type ProfileList,
   type Progress,
+  type Rule,
+  type RuleList,
   type SanitizeResult,
   type ScanResult,
+  type TeachKind,
 } from "./types";
 
 async function call<T>(method: string, params: Record<string, unknown> = {}, tag?: string): Promise<T> {
@@ -96,6 +102,54 @@ export const tauriPlatform: Platform = {
       overrides,
       acknowledge_risk: acknowledgeRisk,
     });
+  },
+
+  refresh(scanId: string) {
+    return call<PolicyUpdate>("scan.refresh", { scan_id: scanId });
+  },
+
+  teach(scanId: string, findingId: string, kind: TeachKind) {
+    return call<PolicyUpdate>("scan.teach", { scan_id: scanId, finding_id: findingId, kind });
+  },
+
+  async allowListCount() {
+    return (await call<{ count: number }>("allowlist.status")).count;
+  },
+
+  async clearAllowList() {
+    await call<{ ok: boolean }>("allowlist.clear");
+  },
+
+  listRules() {
+    return call<RuleList>("rules.list");
+  },
+
+  async createRule(rule: NewRule) {
+    return (await call<{ rule: Rule }>("rules.create", { ...rule })).rule;
+  },
+
+  async updateRule(id: string, changes: Partial<NewRule> & { enabled?: boolean }) {
+    return (await call<{ rule: Rule }>("rules.update", { id, ...changes })).rule;
+  },
+
+  async deleteRule(id: string) {
+    await call<{ ok: boolean }>("rules.delete", { id });
+  },
+
+  async createProfile(name: string, baseId: string) {
+    return (await call<{ profile: Profile }>("profiles.create", { name, base_id: baseId })).profile;
+  },
+
+  async updateProfile(id: string, changes: ProfileChanges) {
+    return (await call<{ profile: Profile }>("profiles.update", { id, ...changes })).profile;
+  },
+
+  async deleteProfile(id: string) {
+    await call<{ ok: boolean }>("profiles.delete", { id });
+  },
+
+  async setDefaultProfile(id: string) {
+    await call<{ ok: boolean }>("profiles.set_default", { id });
   },
 
   async discard(scanId: string) {
