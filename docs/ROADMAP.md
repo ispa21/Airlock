@@ -200,8 +200,9 @@ belongs with the "teach Airlock" flow in Phase 6.
   vault record remained; originals unchanged; log and database clean.
 * CI: Phase 3 and 4 commits had failed CI on `ruff format --check`, which
   also hid a Windows-only failure (the isolation test's simulated segfault
-  raised `OSError` under ctypes instead of crashing). Both fixed; Windows
-  results for the Phase 5 code come from the next CI run.
+  raised `OSError` under ctypes instead of crashing). Both fixed. CI is now
+  green on Linux and Windows: the engine suite (367 tests) passes on
+  `windows-latest`, including the DPAPI round-trip of the vault key.
 
 Known limits carried forward: the rebuilt PDF loses layout and pictures (by
 design) and renders scripts outside the Vera font (e.g. Devanagari) as boxes
