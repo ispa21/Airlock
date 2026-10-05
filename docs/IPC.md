@@ -47,6 +47,7 @@ The host restarts a crashed engine on the next request, at most 3 restarts per
 | `system.health` | yes | `{}` | `{status, uptime_s, network_isolation, blocked_network_attempts, python, platform}` |
 | `system.shutdown` | no (host only) | `{}` | `{ok: true}`, then the engine stops reading |
 | `document.inspect` | yes | `{path}` | `{file_name, extension, size_bytes, format, format_label, family, support, scannable}` |
+| `document.extract` | yes (cancellable) | `{path, ocr?: bool}` | Content-free summary: `{format, format_label, segment_count, char_count, word_count, parts[{kind, segments, chars, words}], counts{pages, slides, sheets, rows, lines, images_ocr, embedded}, ocr_used, unextracted[{kind, label, count}], unextracted_total, duration_ms}`. Emits `$/progress` with stages `pages`, `slides`, `sheets`, `rows`, `parts`, `ocr`. |
 | `scan.start` | Phase 3 | `{path, profile_id}` | `{scan_id, findings[], summary, risk}` with `$/progress` notifications |
 | `scan.discard` | Phase 3 | `{scan_id}` | `{ok}` |
 | `sanitize.run` | Phase 5 | `{scan_id, decisions[]}` | `{artifact_id}` |
@@ -57,6 +58,14 @@ The host restarts a crashed engine on the next request, at most 3 restarts per
 The UI can only call methods in the host's allowlist
 (`apps/desktop/src-tauri/src/commands.rs`). Lifecycle methods are never
 exposed.
+
+### UI request tags (host ⇄ UI)
+
+`engine_call(method, params, tag?)` accepts an optional opaque tag
+(`[A-Za-z0-9_-]{1,64}`). The host records the request id for that tag, adds
+`tag` to every `$/progress` notification for the request before emitting
+`engine://notification`, and `engine_cancel(tag)` sends `$/cancelRequest`
+for it. The cancelled call then rejects with kind `cancelled`.
 
 ## Notifications
 

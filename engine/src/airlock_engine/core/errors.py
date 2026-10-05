@@ -104,3 +104,67 @@ def internal_error() -> AirlockError:
         message="The Airlock engine hit an unexpected problem and stopped this operation.",
         next_step="Try again. If it keeps happening, restart Airlock.",
     )
+
+
+# --- extraction (Phase 2) ---------------------------------------------------
+
+
+def extraction_failed(format_label: str) -> AirlockError:
+    return AirlockError(
+        kind="extraction_failed",
+        message=(
+            f"Airlock could not read this {format_label}. The file may be damaged "
+            "or use features Airlock does not support."
+        ),
+        next_step=(
+            "Open the file in the application that created it, save a new copy, and scan that."
+        ),
+    )
+
+
+def content_too_large(what: str) -> AirlockError:
+    return AirlockError(
+        kind="content_too_large",
+        message=f"This file contains {what}, which is more than Airlock can scan at once.",
+        next_step="Split it into smaller files and scan each one.",
+    )
+
+
+def extraction_timeout() -> AirlockError:
+    return AirlockError(
+        kind="extraction_timeout",
+        message="Reading this file took too long, so Airlock stopped.",
+        next_step="Try again, or split the file into smaller parts.",
+    )
+
+
+def extraction_crashed() -> AirlockError:
+    return AirlockError(
+        kind="extraction_crashed",
+        message=(
+            "Airlock's document reader stopped unexpectedly on this file. The file may be "
+            "damaged, or crafted to attack document readers."
+        ),
+        next_step=(
+            "Save a fresh copy from the application that created it, or scan a different copy."
+        ),
+    )
+
+
+def resource_limit() -> AirlockError:
+    return AirlockError(
+        kind="resource_limit",
+        message="This file needed more memory than Airlock allows for a single document.",
+        next_step="Split the file into smaller parts and scan each one.",
+    )
+
+
+def unsafe_archive() -> AirlockError:
+    return AirlockError(
+        kind="unsafe_archive",
+        message=(
+            "This file is packaged in a way that expands to an unsafe size when opened "
+            "(a 'zip bomb'). Airlock stopped reading it."
+        ),
+        next_step="Do not open this file. If you trust its source, ask the sender for a new copy.",
+    )

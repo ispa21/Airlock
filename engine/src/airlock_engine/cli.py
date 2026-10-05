@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import multiprocessing
 import os
 import sys
 from typing import BinaryIO
@@ -51,6 +52,8 @@ def _claim_stdio() -> tuple[BinaryIO, BinaryIO]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Required for extraction workers in the frozen (PyInstaller) build.
+    multiprocessing.freeze_support()
     args = _parse_args(argv)
     # Network isolation first, before any other module has a chance to run.
     network_guard.install()

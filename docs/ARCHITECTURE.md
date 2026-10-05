@@ -145,9 +145,11 @@ which is never shipped.
 | IPC | **JSON-RPC 2.0 over stdio** | See IPC.md. |
 | Storage | **SQLite** (stdlib `sqlite3`) | WAL mode, schema migrations, in `%LOCALAPPDATA%\com.airlock.desktop`. |
 | Pseudonym vault | **AES-256-GCM** (`cryptography`), key wrapped with **Windows DPAPI** (`CryptProtectData`, current-user scope) | Keys never leave the machine; vault never in logs. |
-| PDF | **pypdfium2** (Apache-2.0/BSD) for text + rendering | Sanitized PDFs are **rebuilt**, not edited in place (see risk R1). PyMuPDF only if a commercial licence is purchased. |
-| DOCX / XLSX / PPTX | python-docx, openpyxl, python-pptx + direct OOXML part handling via `defusedxml` | Covers comments, notes, headers/footers, hidden sheets, metadata. |
-| OCR | **RapidOCR (ONNX Runtime, PP-OCR models)** behind `OcrProvider` | pip-installable, no external binary. Tesseract is the alternative provider. |
+| Licensing policy | **Open source, permissive licences only** (MIT/BSD/Apache/PSF; MPL-2.0 tolerated for unmodified use) | Enforced by `engine/tests/test_licenses.py`. No copyleft (GPL/AGPL/LGPL/SSPL) in the shipped app; see [THIRD_PARTY.md](THIRD_PARTY.md). |
+| PDF | **pypdfium2** (PDFium; Apache-2.0/BSD-3) | Text, metadata, bookmarks, annotations, form values, links, attachments, rendering for OCR. Sanitized PDFs will be **rebuilt**, not edited in place (risk R1). |
+| DOCX / XLSX / PPTX | **Direct OOXML part reading** with `defusedxml` (PSF) | Every ZIP part is visited, not just what a document library exposes: comments, tracked changes, notes, hidden sheets/rows/columns, orphaned shared strings, pivot caches, data connections, properties, custom XML, embedded files. python-docx/openpyxl/python-pptx are used only to build test fixtures. |
+| OCR | **RapidOCR 3 (ONNX Runtime, PP-OCRv6 models)** behind `OcrProvider` | Apache-2.0; models ship inside the wheel; runs with the network guard on (verified: zero network attempts). Tesseract remains a possible alternative provider. |
+| Document isolation | **One disposable worker process per document** (`multiprocessing` spawn) | Timeout, cancellation, memory cap (Windows Job Object / Linux `RLIMIT_AS`), network guard in the worker, JSON-only result channel (no pickle). |
 | NER | **spaCy `en_core_web_sm`** behind `NerProvider` | OntoNotes labels map directly onto PERSON/ORG/LOCATION/MONEY/DATE/PRODUCT/EVENT. Upgrade path: `en_core_web_md`, or a GLiNER/BERT ONNX model, without touching the pipeline. |
 | Licensing | **Ed25519** signed JSON licences, verified in Rust (`ed25519-dalek`) | Public key compiled in; private key offline. |
 | Installer | Tauri **NSIS**, per-user install | WebView2 bootstrapper embedded; an offline-installer variant for air-gapped sites. |
@@ -157,8 +159,8 @@ which is never shipped.
 
 | Phase | Engine (Python) | Host / UI |
 | --- | --- | --- |
-| 1 (now) | stdlib only (dev: pytest, ruff, mypy) | tauri 2, tauri-plugin-dialog, serde_json; react, @tauri-apps/api, plugin-dialog (dev: vite, vitest, testing-library) |
-| 2 | pypdfium2, python-docx, openpyxl, python-pptx, defusedxml, Pillow, rapidocr-onnxruntime | — |
+| 1 ✅ | stdlib only (dev: pytest, ruff, mypy) | tauri 2, tauri-plugin-dialog, serde_json; react, @tauri-apps/api, plugin-dialog (dev: vite, vitest, testing-library) |
+| 2 ✅ | defusedxml, pypdfium2, pillow, rapidocr, onnxruntime, opencv-python-headless, numpy (dev: python-docx, openpyxl, python-pptx, reportlab for fixtures) | — |
 | 3 | spacy + `en_core_web_sm` (bundled) | — |
 | 5 | cryptography, pywin32 (DPAPI) | — |
 | 7 | reportlab (rebuild safe PDFs) | — |
@@ -169,6 +171,41 @@ which is never shipped.
 Every dependency must work offline and be bundleable. Licences are checked for
 commercial compatibility before adoption (AGPL/GPL is excluded from the
 shipped binary).
+
+## 5a. Document extraction (Phase 2)
+
+```
+document.extract(path)
+  └─ validate (path, size, magic bytes)            engine process
+  └─ spawn worker ──────────────────────────────── worker process (fresh interpreter)
+        network guard → memory cap → read bytes → re-sniff (TOCTOU)
+        adapter.extract(bytes, ctx)  ── emits TextSegments ──┐
+          ├─ PDF:   pages, info/XMP, bookmarks, annotations, │  ctx enforces limits:
+          │         form values, links, attachments (↻),     │  chars, segments, pages,
+          │         OCR of scanned pages and pictures        │  OCR image count, depth
+          ├─ OOXML: structured main parts + every other part │
+          │         (generic walker), external links, media  │
+          │         (OCR), embeddings (↻), macros (reported) │
+          ├─ Text/CSV/config/code: encoding detection,       │
+          │         per-cell segments with header context    │
+          └─ Images: OCR per frame + EXIF/GPS/PNG text/XMP   │
+        progress → JSON frames → engine → `$/progress`       │
+  └─ ExtractedDocument (JSON, validated) ◀────────────────────┘
+  └─ summarize → content-free summary to the UI
+```
+
+* **Segments** carry `kind` (body, comment, tracked_change, hidden,
+  metadata, link, ...), a content-free `label` ("Sheet 2 · C14"), a locator
+  for write-back, optional `context` (column header) and OCR `boxes`.
+* **Nothing is silently skipped.** Parts that cannot be read are recorded as
+  `unextracted` (macros, OLE objects, unreadable images, earlier PDF
+  revisions, scripts) and shown to the user. Phase 5 removes them from safe
+  copies.
+* **Embedded files** (attachments, OLE packages, chart workbooks) are
+  extracted recursively up to depth 2, with `!/`-prefixed locators.
+* The extracted text never crosses IPC to the UI; `document.extract` returns
+  only counts and labels. Phase 3 keeps the document in an engine-side scan
+  session for detection.
 
 ## 6. Data model
 
@@ -304,15 +341,15 @@ pipeline.
 
 | # | Risk | Mitigation |
 | --- | --- | --- |
-| R1 | **PyMuPDF is AGPL-3.0.** Shipping it in a closed-source product requires a commercial licence from Artifex. | Default to pypdfium2 (permissive) for extraction and rendering, and **rebuild** sanitized PDFs rather than redacting in place. Revisit if a PyMuPDF licence is bought (true in-place redaction with layout). The adapter boundary makes the swap local. |
-| R2 | **Hidden-content leakage**: metadata, comments, tracked changes, speaker notes, hidden sheets, embedded objects, cached pivot data and alt text survive sanitisation. | Adapters must extract every text-bearing part. The verifier additionally runs a **raw sweep** over every XML part of the output package, plus a check that no original finding value (normalised) appears anywhere in the output bytes. Unextractable parts are dropped from the output. |
+| R1 | **PyMuPDF is AGPL-3.0.** | **Resolved (open-source-only decision):** pypdfium2 for extraction and rendering; sanitized PDFs will be rebuilt (Phase 5/7) rather than redacted in place. |
+| R2 | **Hidden-content leakage**: metadata, comments, tracked changes, speaker notes, hidden sheets, embedded objects, cached pivot data and alt text survive sanitisation. | Phase 2 extracts every text-bearing part (canary tests cover each location per format) and reports what it cannot read (macros, OLE objects, PDF revisions, scripts). The verifier additionally runs a **raw sweep** over every XML part of the output package, plus a check that no original finding value (normalised) appears anywhere in the output bytes. Unextractable parts are dropped from the output. |
 | R3 | **Verification is circular** if it only reuses the same detectors. | Two independent checks: a fresh full detection pass **and** a literal residual-value search for every original finding (case, whitespace and separator normalised). |
 | R4 | **NER is probabilistic**, and weak on Indian names in English text. | NER findings are labelled with confidence. Deterministic and company-rule detectors carry the guarantees. Custom dictionaries cover known names and customers. The model can be upgraded behind `NerProvider`. |
 | R5 | **Packaging size and start-up** (spaCy + ONNX Runtime + PDF libs ≈ 250–350 MB); onefile extraction is slow and flagged by antivirus. | PyInstaller `--onedir` bundled as Tauri resources; lazy-load NER/OCR on first use; warm-start the engine at launch. |
 | R6 | **SmartScreen / AV reputation** for an unsigned `.exe`. | Authenticode signing (OV/EV certificate) of the installer, host and engine executables from Phase 8. |
 | R7 | **WebView2 on clean or offline machines.** | Windows 11 ships it. The default installer embeds the bootstrapper; an offline installer variant embeds the full runtime. |
 | R8 | **Windows 11 context menu**: classic registry verbs only appear under "Show more options". | V1: per-user registry verb (works everywhere). V1.x: `IExplorerCommand` handler with sparse-package identity for the modern menu. |
-| R9 | **Hostile documents**: zip bombs, XML entity expansion, decompression bombs, parser crashes in native code. | Size limits, entry-count limits, `defusedxml`, Pillow pixel limits, and extraction in a disposable worker process with timeout and memory limit (Job Object). A host-level crash only restarts the engine. |
+| R9 | **Hostile documents**: zip bombs, XML entity expansion, decompression bombs, parser crashes in native code. | Implemented in Phase 2: size/entry/ratio limits, `defusedxml` (DTDs and entities forbidden), Pillow pixel limits, and a disposable worker per document with timeout, cancellation and memory cap. Mutation fuzzing in CI. |
 | R10 | **False positives** (bank-account-like numbers, invoice ids) erode trust. | Checksums where they exist (Verhoeff, Luhn, GSTIN mod-36), context keywords for checksum-less ids, per-detector precision/recall gates in CI. |
 | R11 | **Placeholder collisions** (`PERSON_001` already present in the text). | Track issued placeholders per session and exclude only those from verification; detect pre-existing collisions and suffix them. |
 | R12 | **Legacy formats** (.doc, .xls, .ppt, .rtf, ODF) have weak pure-Python support. | Recognised with precise "convert first" errors in V1; .xls via xlrd and ODF via odfpy as V1.x candidates. |

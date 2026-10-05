@@ -6,19 +6,39 @@ readme = "README.md"
 requires-python = ">=3.11,<3.13"
 license = { text = "Proprietary" }
 authors = [{ name = "Airlock" }]
-# Phase 1 runtime is standard-library only. Format, OCR and NER dependencies
-# arrive with the phases that use them (see docs/ARCHITECTURE.md §Dependencies).
-dependencies = []
+# Open-source, permissively licensed (MIT/BSD/Apache/PSF) dependencies only;
+# copyleft libraries (e.g. AGPL PyMuPDF) are excluded from the shipped engine.
+# Every dependency must run fully offline. See docs/ARCHITECTURE.md §5.
+dependencies = [
+    "defusedxml>=0.7.1",        # PSF-2.0  hardened XML parsing for OOXML parts
+    "pypdfium2>=5.14",          # Apache-2.0/BSD-3  PDF text, metadata, rendering
+    "pillow>=12.0",             # MIT-CMU  image decoding, EXIF
+    "rapidocr>=3.9,<4",         # Apache-2.0  local OCR, models bundled in the wheel
+    "onnxruntime>=1.20",        # MIT  OCR inference
+    "opencv-python-headless>=4.10",  # Apache-2.0  (replaces GUI opencv-python)
+    "numpy>=2.0,<3",            # BSD-3
+]
 
 [project.scripts]
 airlock-engine = "airlock_engine.cli:main"
 
 [dependency-groups]
 dev = [
+    # Fixture generators: build real Office/PDF files for the test suite.
+    "python-docx>=1.2",
+    "openpyxl>=3.1.5",
+    "python-pptx>=1.0.2",
+    "reportlab>=4.2",
     "pytest>=8.3",
     "ruff>=0.6",
     "mypy>=1.11",
+    "types-defusedxml>=0.7",
 ]
+
+[tool.uv]
+# rapidocr depends on the GUI build of OpenCV; the engine only needs the
+# headless build (no Qt/GUI libraries, smaller bundle). Both provide `cv2`.
+override-dependencies = ["opencv-python; sys_platform == 'never'"]
 
 [build-system]
 requires = ["hatchling>=1.25"]
@@ -42,7 +62,8 @@ src = ["src", "tests"]
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "S", "T20", "SIM", "RUF"]
 ignore = [
-    "S101", # assert is fine in tests and invariants
+    "S101",   # assert is fine in tests and invariants
+    "RUF001", # product copy uses typographic characters (–, ·, •) on purpose
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -53,3 +74,8 @@ python_version = "3.11"
 strict = true
 mypy_path = "src"
 packages = ["airlock_engine"]
+
+[[tool.mypy.overrides]]
+# No type information shipped; usage is wrapped behind Airlock interfaces.
+module = ["pypdfium2", "pypdfium2.*", "rapidocr", "rapidocr.*"]
+ignore_missing_imports = true

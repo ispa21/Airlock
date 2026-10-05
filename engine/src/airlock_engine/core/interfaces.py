@@ -10,8 +10,14 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from airlock_engine.core.models import DetectionResult, ExtractedDocument, Locator, TextSegment
+from airlock_engine.core.models import DetectionResult, ExtractedDocument, TextSegment
+
+if TYPE_CHECKING:
+    from PIL import Image
+
+    from airlock_engine.extraction.context import ExtractionContext
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,28 +31,30 @@ class Replacement:
 
 
 class DocumentAdapter(ABC):
-    """One implementation per document family (PDF, DOCX, XLSX, ...)."""
+    """One implementation per document family (PDF, OOXML, text, image...).
 
-    #: Canonical format ids this adapter handles, e.g. ``("docx",)``.
+    Adapters work on bytes: the original file is read once, read-only, and is
+    never handed to an adapter as a writable path.
+    """
+
+    #: Canonical format ids this adapter handles, e.g. ``("docx", "docm")``.
     formats: tuple[str, ...] = ()
 
     @abstractmethod
-    def extract(self, source: Path) -> ExtractedDocument:
-        """Read ``source`` without modifying it and return every text-bearing part.
+    def extract(self, data: bytes, ctx: ExtractionContext) -> None:
+        """Emit every text-bearing part of ``data`` into ``ctx``.
 
         Must include hidden content that could leak: comments, speaker notes,
-        hidden sheets, headers/footers, tracked changes and document metadata.
+        hidden sheets, headers/footers, tracked changes, document metadata,
+        link targets and text inside images. Anything that cannot be read is
+        reported with ``ctx.unextracted`` rather than silently skipped.
         """
 
-    @abstractmethod
     def sanitize(
-        self,
-        source: Path,
-        document: ExtractedDocument,
-        replacements: Sequence[Replacement],
-        destination: Path,
-    ) -> None:
-        """Write a sanitized copy to ``destination``. ``source`` is read-only."""
+        self, data: bytes, document: ExtractedDocument, replacements: Sequence[Replacement]
+    ) -> bytes:
+        """Return a sanitized copy of ``data`` (Phase 5)."""
+        raise NotImplementedError
 
 
 class Detector(ABC):
@@ -80,10 +88,19 @@ class NerProvider(ABC):
     def entities(self, text: str) -> Sequence[NerEntity]: ...
 
 
+@dataclass(frozen=True, slots=True)
+class OcrLine:
+    text: str
+    score: float
+    #: Axis-aligned bounding box in image pixels: (x0, y0, x1, y1).
+    box: tuple[float, float, float, float]
+
+
 class OcrProvider(ABC):
-    """A local OCR engine used by the image adapter and for scanned PDFs."""
+    """A local OCR engine used for images, scanned PDF pages and embedded pictures."""
 
     name: str
 
     @abstractmethod
-    def recognize(self, image_png: bytes, locator: Locator) -> Sequence[TextSegment]: ...
+    def recognize(self, image: Image.Image) -> Sequence[OcrLine]:
+        """Return text lines in reading order. Must not use the network."""

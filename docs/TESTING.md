@@ -10,6 +10,10 @@ property.
 | Layer | Tooling | What it covers |
 | --- | --- | --- |
 | Engine unit | pytest | Protocol parsing, server behaviour (cancel, oversize, drain on EOF), input validation, sniffing, `SensitiveValue`, safelog. Later: every detector, policy, masking, risk and verification. |
+| Extraction (canaries) | pytest + `tests/builders.py` | Real DOCX/XLSX/PPTX/PDF/images built with python-docx, openpyxl, python-pptx, reportlab and Pillow, with a unique canary in every hidden location; each must be extracted with the correct kind, label and locator, and labels/locators must never contain content. |
+| Hostile documents | pytest | Zip bomb, entry-count bomb, billion laughs, decompression bomb, encrypted files, truncation, plus seeded mutation fuzzing (450 mutated files per run) that requires a result or an `AirlockError`, never a raw exception or a hang. |
+| Worker isolation | pytest (`-m subprocess`) | Crash, segfault, timeout, memory cap, network attempt and cancellation inside the real worker process; `document.extract` end to end with originals hashed before/after and stderr checked for leaks. |
+| Licence policy | pytest | Every runtime dependency is permissively licensed (no GPL/AGPL/LGPL/SSPL). |
 | Engine subprocess | pytest (`-m subprocess`) | The real engine process over pipes: handshake, calls, clean exit, stdout-pollution immunity, no leaks on stderr. |
 | Network isolation | pytest (fresh interpreters) + `unshare -n` in CI | Guard blocks DNS, TCP, UDP, `urllib`, `http.client`, IPv6; loopback still works; proxy variables removed. The full suite also runs in a network namespace with no network. |
 | Host | `cargo test` | Supervisor against the real engine and against fake engines (crash, restart budget, incompatible handshake, timeout, missing binary); RPC error mapping; log allowlist; UI method allowlist. |

@@ -57,3 +57,54 @@ export function toEngineError(value: unknown): EngineError {
     original_affected: false,
   };
 }
+
+/** Where text was found; mirrors the engine's SegmentKind. */
+export type SegmentKind =
+  | "body"
+  | "header_footer"
+  | "note"
+  | "comment"
+  | "tracked_change"
+  | "hidden"
+  | "metadata"
+  | "link"
+  | "field"
+  | "alt_text"
+  | "name"
+  | "template"
+  | "chart"
+  | "ocr";
+
+export interface ExtractedPart {
+  kind: SegmentKind;
+  segments: number;
+  chars: number;
+  words: number;
+}
+
+export interface UnreadItem {
+  kind: string;
+  label: string;
+  count: number;
+}
+
+/** Content-free summary returned by `document.extract`. */
+export interface ExtractSummary {
+  format: string;
+  format_label: string;
+  segment_count: number;
+  char_count: number;
+  word_count: number;
+  parts: ExtractedPart[];
+  counts: Partial<Record<"pages" | "slides" | "sheets" | "rows" | "lines" | "paragraphs" | "images_ocr" | "embedded", number>>;
+  ocr_used: boolean;
+  unextracted: UnreadItem[];
+  unextracted_total: number;
+  duration_ms: number;
+}
+
+export interface Progress {
+  stage: string;
+  done: number;
+  total: number;
+}

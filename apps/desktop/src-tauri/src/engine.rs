@@ -199,6 +199,8 @@ pub struct Engine {
     restarts: Mutex<Vec<Instant>>,
     notify: NotificationSink,
     log: Arc<LogSink>,
+    /// In-flight request id -> UI tag, so the UI can follow progress and cancel.
+    tags: Arc<Mutex<HashMap<u64, String>>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -215,6 +217,7 @@ impl Engine {
             restarts: Mutex::new(Vec::new()),
             notify,
             log,
+            tags: Arc::default(),
         }
     }
 
@@ -229,28 +232,73 @@ impl Engine {
     }
 
     /// Send a request and block until the response, a crash or the timeout.
+    #[cfg(test)]
     pub fn call(&self, method: &str, params: Value, timeout: Duration) -> Reply {
+        self.call_tagged(method, params, timeout, None)
+    }
+
+    /// Like [`Engine::call`]; `tag` lets the UI match progress notifications
+    /// to this request and cancel it with [`Engine::cancel`].
+    pub fn call_tagged(
+        &self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+        tag: Option<&str>,
+    ) -> Reply {
         let (id, rx) = {
             let mut state = lock(&self.state);
             self.ensure_running(&mut state)?;
             let running = state.as_mut().expect("ensure_running guarantees Some");
             let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-            (id, Self::send_request(running, id, method, params)?)
+            if let Some(tag) = tag {
+                lock(&self.tags).insert(id, tag.to_owned());
+            }
+            match Self::send_request(running, id, method, params) {
+                Ok(rx) => (id, rx),
+                Err(err) => {
+                    lock(&self.tags).remove(&id);
+                    return Err(err);
+                }
+            }
         };
-        match rx.recv_timeout(timeout) {
+        let reply = match rx.recv_timeout(timeout) {
             Ok(reply) => reply,
             Err(RecvTimeoutError::Timeout) => {
-                let mut state = lock(&self.state);
-                if let Some(running) = state.as_mut() {
+                if let Some(running) = lock(&self.state).as_mut() {
                     lock(&running.pending).remove(&id);
-                    let cancel = json!({"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": id}});
-                    if let Some(stdin) = running.stdin.as_mut() {
-                        let _ = write_frame(stdin, &cancel);
-                    }
                 }
+                self.send_cancel(id);
                 Err(EngineError::timeout())
             }
             Err(RecvTimeoutError::Disconnected) => Err(EngineError::engine_crashed()),
+        };
+        lock(&self.tags).remove(&id);
+        reply
+    }
+
+    /// Ask the engine to cancel the in-flight request carrying `tag`.
+    /// The waiting call then completes with a `cancelled` error.
+    pub fn cancel(&self, tag: &str) -> bool {
+        let id = lock(&self.tags)
+            .iter()
+            .find(|(_, t)| t.as_str() == tag)
+            .map(|(id, _)| *id);
+        match id {
+            Some(id) => {
+                self.send_cancel(id);
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn send_cancel(&self, id: u64) {
+        let cancel = json!({"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": id}});
+        if let Some(running) = lock(&self.state).as_mut() {
+            if let Some(stdin) = running.stdin.as_mut() {
+                let _ = write_frame(stdin, &cancel);
+            }
         }
     }
 
@@ -353,7 +401,20 @@ impl Engine {
         let pending: Pending = Arc::default();
         let alive = Arc::new(AtomicBool::new(true));
         {
-            let (pending, alive, notify) = (pending.clone(), alive.clone(), self.notify.clone());
+            // Attach the UI tag to progress notifications for tagged requests.
+            let (tags, forward) = (self.tags.clone(), self.notify.clone());
+            let notify: NotificationSink = Arc::new(move |mut message: Value| {
+                let id = message
+                    .pointer("/params/request_id")
+                    .and_then(Value::as_u64);
+                if let Some(tag) = id.and_then(|id| lock(&tags).get(&id).cloned()) {
+                    if let Some(params) = message.get_mut("params").and_then(Value::as_object_mut) {
+                        params.insert("tag".into(), Value::from(tag));
+                    }
+                }
+                forward(message);
+            });
+            let (pending, alive) = (pending.clone(), alive.clone());
             thread::Builder::new()
                 .name("engine-stdout".into())
                 .spawn(move || read_loop(stdout, pending, alive, notify))
@@ -609,6 +670,45 @@ for line in sys.stdin:
             .call("slow", json!({}), Duration::from_millis(300))
             .unwrap_err();
         assert_eq!(err.kind, "timeout");
+        engine.shutdown();
+    }
+
+    /// A fake engine that reports progress, then waits for cancellation.
+    const CANCELLABLE: &str = r#"
+import json, sys
+for line in sys.stdin:
+    msg = json.loads(line)
+    if msg.get("method") == "system.hello":
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"compatible": True}}), flush=True)
+    elif msg.get("method") == "slow":
+        slow_id = msg["id"]
+        print(json.dumps({"jsonrpc": "2.0", "method": "$/progress",
+                          "params": {"request_id": slow_id, "stage": "pages", "done": 1, "total": 9}}), flush=True)
+    elif msg.get("method") == "$/cancelRequest" and msg["params"]["id"] == slow_id:
+        print(json.dumps({"jsonrpc": "2.0", "id": slow_id, "error": {"code": -32001, "message": "cancelled"}}), flush=True)
+"#;
+
+    #[test]
+    fn tagged_requests_get_tagged_progress_and_can_be_cancelled() {
+        let Some(python) = venv_python() else { return };
+        let (engine, seen) = engine_with(python_script(&python, CANCELLABLE));
+        let engine = Arc::new(engine);
+        let worker = {
+            let engine = engine.clone();
+            thread::spawn(move || {
+                engine.call_tagged("slow", json!({}), Duration::from_secs(10), Some("scan-1"))
+            })
+        };
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while lock(&seen).is_empty() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(lock(&seen)[0]["params"]["tag"], "scan-1");
+        assert!(engine.cancel("scan-1"));
+        assert!(!engine.cancel("unknown"));
+        let err = worker.join().unwrap().unwrap_err();
+        assert_eq!(err.kind, "cancelled");
+        assert!(lock(&engine.tags).is_empty());
         engine.shutdown();
     }
 

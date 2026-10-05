@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import type { DropHandlers, Platform } from "./engine/platform";
 import { PlatformProvider } from "./engine/PlatformContext";
-import type { EngineError, InspectResult } from "./engine/types";
+import type { EngineError, ExtractSummary, InspectResult, Progress } from "./engine/types";
 
 const INFO = {
   engine_version: "0.1.0",
@@ -21,8 +21,27 @@ const DOCX: InspectResult = {
   format: "docx",
   format_label: "Word document",
   family: "document",
-  support: "planned",
-  scannable: false,
+  support: "available",
+  scannable: true,
+};
+
+const SUMMARY: ExtractSummary = {
+  format: "docx",
+  format_label: "Word document",
+  segment_count: 40,
+  char_count: 9_000,
+  word_count: 1_520,
+  parts: [
+    { kind: "body", segments: 30, chars: 8_500, words: 1_480 },
+    { kind: "comment", segments: 3, chars: 200, words: 30 },
+    { kind: "tracked_change", segments: 1, chars: 40, words: 6 },
+    { kind: "metadata", segments: 6, chars: 60, words: 4 },
+  ],
+  counts: { paragraphs: 30, images_ocr: 1, embedded: 1 },
+  ocr_used: true,
+  unextracted: [{ kind: "macro", label: "Macros (VBA project)", count: 1 }],
+  unextracted_total: 1,
+  duration_ms: 1_234,
 };
 
 function fakePlatform(overrides: Partial<Platform> = {}) {
@@ -32,6 +51,11 @@ function fakePlatform(overrides: Partial<Platform> = {}) {
     engineInfo: vi.fn().mockResolvedValue(INFO),
     inspect: vi.fn().mockResolvedValue(DOCX),
     pickFile: vi.fn().mockResolvedValue("C:\\Docs\\Contract.docx"),
+    extract: vi.fn(async (_path: string, _tag: string, onProgress: (p: Progress) => void) => {
+      onProgress({ stage: "parts", done: 1, total: 4 });
+      return SUMMARY;
+    }),
+    cancel: vi.fn().mockResolvedValue(undefined),
     onFileDrop: vi.fn(async (handlers: DropHandlers) => {
       drop = handlers;
       return () => {};
@@ -77,9 +101,79 @@ describe("App", () => {
     expect(screen.getByText("Contract.docx")).toBeInTheDocument();
     expect(screen.getByText("Word document")).toBeInTheDocument();
     expect(screen.getByText("24 KB")).toBeInTheDocument();
-    // Scanning is not available until the detection engine ships.
+    expect(screen.getByRole("button", { name: "Scan Document" })).toBeEnabled();
+  });
+
+  it("disables scanning for recognised but unsupported files", async () => {
+    const { platform } = fakePlatform({ inspect: vi.fn().mockResolvedValue({ ...DOCX, scannable: false }) });
+    renderApp(platform);
+    await userEvent.click(screen.getByRole("button", { name: /drop files here/i }));
+    await screen.findByText("Verified");
     expect(screen.getByRole("button", { name: "Scan Document" })).toBeDisabled();
     expect(screen.getByTestId("scan-hint")).toBeInTheDocument();
+  });
+
+  it("scans locally and shows what was read, including easy-to-miss content", async () => {
+    const { platform } = fakePlatform();
+    renderApp(platform);
+    await userEvent.click(screen.getByRole("button", { name: /drop files here/i }));
+    await screen.findByText("Verified");
+    await userEvent.click(screen.getByRole("button", { name: "Scan Document" }));
+
+    expect(await screen.findByRole("heading", { name: "What Airlock read" })).toBeInTheDocument();
+    expect(platform.extract).toHaveBeenCalledWith("C:\\Docs\\Contract.docx", expect.stringMatching(/^scan-/), expect.any(Function));
+    expect(screen.getByText("1,520 words · 1 image read with OCR · 1 embedded file")).toBeInTheDocument();
+    expect(screen.getByText("Main text")).toBeInTheDocument();
+    expect(screen.getByText("1,480 words")).toBeInTheDocument();
+    expect(screen.getByText("Deleted text kept by tracked changes")).toBeInTheDocument();
+    expect(screen.getByText("Includes 10 items that are easy to miss when you open the file.")).toBeInTheDocument();
+    expect(screen.getByText("1 item could not be read")).toBeInTheDocument();
+    expect(screen.getByText("Macros (VBA project)")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Scan Again" })).toBeEnabled();
+  });
+
+  it("shows progress and can cancel a running scan", async () => {
+    let reject: (reason: unknown) => void = () => undefined;
+    let report: (p: Progress) => void = () => undefined;
+    const { platform } = fakePlatform({
+      extract: vi.fn(
+        (_path: string, _tag: string, onProgress: (p: Progress) => void) =>
+          new Promise<ExtractSummary>((_resolve, rej) => {
+            reject = rej;
+            report = onProgress;
+          }),
+      ),
+      cancel: vi.fn(async () => reject({ kind: "cancelled", message: "The operation was cancelled." })),
+    });
+    renderApp(platform);
+    await userEvent.click(screen.getByRole("button", { name: /drop files here/i }));
+    await screen.findByText("Verified");
+    await userEvent.click(screen.getByRole("button", { name: "Scan Document" }));
+    expect(await screen.findByText("Starting the secure reader…")).toBeInTheDocument();
+    act(() => report({ stage: "pages", done: 2, total: 12 }));
+    expect(screen.getByText("Reading page 3 of 12")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "17");
+
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(platform.cancel).toHaveBeenCalledWith(expect.stringMatching(/^scan-/));
+    expect(await screen.findByText("Scan cancelled. Your file was not changed.")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("explains a failed scan", async () => {
+    const failure: EngineError = {
+      kind: "encrypted_document",
+      message: "This document is password-protected, so Airlock cannot read its contents.",
+      next_step: "Remove the password in the original application, then scan the copy.",
+      original_affected: false,
+    };
+    const { platform } = fakePlatform({ extract: vi.fn().mockRejectedValue(failure) });
+    renderApp(platform);
+    await userEvent.click(screen.getByRole("button", { name: /drop files here/i }));
+    await screen.findByText("Verified");
+    await userEvent.click(screen.getByRole("button", { name: "Scan Document" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(failure.message);
+    expect(screen.getByRole("alert")).toHaveTextContent("Your original file was not changed.");
   });
 
   it("explains rejected files and reassures that the original is untouched", async () => {

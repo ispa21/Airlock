@@ -2,23 +2,41 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { DropZone, type Selection } from "./components/DropZone";
 import { ErrorNotice } from "./components/ErrorNotice";
+import { ExtractionReport } from "./components/ExtractionReport";
 import { AirlockMark, ChevronIcon } from "./components/icons";
+import { ScanProgress } from "./components/ScanProgress";
 import { TrustBar } from "./components/TrustBar";
 import { usePlatform } from "./engine/PlatformContext";
-import { toEngineError, type EngineError, type EngineState } from "./engine/types";
+import {
+  toEngineError,
+  type EngineError,
+  type EngineState,
+  type ExtractSummary,
+  type Progress,
+} from "./engine/types";
 
 const PROFILES = [{ id: "company-default", label: "Company Default" }];
+
+type Scan =
+  | { status: "idle" }
+  | { status: "running"; tag: string; progress: Progress | null }
+  | { status: "done"; summary: ExtractSummary };
+
+let scanCounter = 0;
+const newTag = () => `scan-${Date.now().toString(36)}-${(scanCounter += 1)}`;
 
 export function App() {
   const platform = usePlatform();
   const [engine, setEngine] = useState<EngineState>({ state: "starting" });
   const [selection, setSelection] = useState<Selection>({ status: "empty" });
+  const [scan, setScan] = useState<Scan>({ status: "idle" });
   const [error, setError] = useState<EngineError | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [hovering, setHovering] = useState(false);
   const [profile, setProfile] = useState(PROFILES[0]!.id);
-  // Ignore results from an inspection that a newer file selection replaced.
+  // Ignore results from work that a newer file selection replaced.
   const latestRequest = useRef(0);
+  const runningTag = useRef<string | null>(null);
 
   const connect = useCallback(async () => {
     setEngine({ state: "starting" });
@@ -33,12 +51,19 @@ export function App() {
     void connect();
   }, [connect]);
 
+  const stopRunningScan = useCallback(() => {
+    if (runningTag.current) void platform.cancel(runningTag.current).catch(() => undefined);
+    runningTag.current = null;
+  }, [platform]);
+
   const load = useCallback(
     async (paths: string[]) => {
       const path = paths[0];
       if (!path) return;
+      stopRunningScan();
       const request = ++latestRequest.current;
       setError(null);
+      setScan({ status: "idle" });
       setNotice(paths.length > 1 ? "Airlock protects one file at a time. Loaded the first file." : null);
       setSelection({ status: "inspecting", path });
       try {
@@ -51,7 +76,7 @@ export function App() {
         setError(toEngineError(err));
       }
     },
-    [platform],
+    [platform, stopRunningScan],
   );
 
   useEffect(() => {
@@ -75,14 +100,45 @@ export function App() {
   }, [platform, load]);
 
   const clear = useCallback(() => {
+    stopRunningScan();
     latestRequest.current += 1;
     setSelection({ status: "empty" });
+    setScan({ status: "idle" });
     setError(null);
     setNotice(null);
-  }, []);
+  }, [stopRunningScan]);
+
+  const startScan = useCallback(async () => {
+    if (selection.status !== "verified") return;
+    const request = latestRequest.current;
+    const tag = newTag();
+    runningTag.current = tag;
+    setError(null);
+    setNotice(null);
+    setScan({ status: "running", tag, progress: null });
+    try {
+      const summary = await platform.extract(selection.path, tag, (progress) => {
+        if (runningTag.current === tag) setScan({ status: "running", tag, progress });
+      });
+      if (request !== latestRequest.current || runningTag.current !== tag) return;
+      setScan({ status: "done", summary });
+    } catch (err) {
+      if (request !== latestRequest.current) return;
+      const failure = toEngineError(err);
+      setScan({ status: "idle" });
+      if (failure.kind === "cancelled") setNotice("Scan cancelled. Your file was not changed.");
+      else setError(failure);
+    } finally {
+      if (runningTag.current === tag) runningTag.current = null;
+    }
+  }, [platform, selection]);
+
+  const cancelScan = useCallback(() => {
+    if (runningTag.current) void platform.cancel(runningTag.current).catch(() => undefined);
+  }, [platform]);
 
   const verified = selection.status === "verified" ? selection.result : null;
-  const canScan = engine.state === "ready" && verified !== null && verified.scannable;
+  const canScan = engine.state === "ready" && verified !== null && verified.scannable && scan.status !== "running";
 
   return (
     <div className="app">
@@ -108,31 +164,36 @@ export function App() {
         {error && <ErrorNotice error={error} />}
         {notice && !error && <p className="inline-note">{notice}</p>}
 
-        <div className="controls">
-          <label className="field">
-            <span className="field__label">Privacy Profile</span>
-            <span className="select">
-              <select value={profile} onChange={(e) => setProfile(e.target.value)}>
-                {PROFILES.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-              <ChevronIcon className="select__chevron" />
-            </span>
-          </label>
+        {scan.status === "running" ? (
+          <ScanProgress progress={scan.progress} onCancel={cancelScan} />
+        ) : (
+          <div className="controls">
+            <label className="field">
+              <span className="field__label">Privacy Profile</span>
+              <span className="select">
+                <select value={profile} onChange={(e) => setProfile(e.target.value)}>
+                  {PROFILES.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+                <ChevronIcon className="select__chevron" />
+              </span>
+            </label>
 
-          <button type="button" className="primary" disabled={!canScan}>
-            Scan Document
-          </button>
-          {verified && !verified.scannable && (
-            <p className="inline-note" data-testid="scan-hint">
-              File verified on this device and left unchanged. Sensitive-data scanning is not enabled
-              in this build yet.
-            </p>
-          )}
-        </div>
+            <button type="button" className="primary" disabled={!canScan} onClick={() => void startScan()}>
+              {scan.status === "done" ? "Scan Again" : "Scan Document"}
+            </button>
+            {verified && !verified.scannable && (
+              <p className="inline-note" data-testid="scan-hint">
+                Airlock recognises this file type but cannot scan it yet.
+              </p>
+            )}
+          </div>
+        )}
+
+        {scan.status === "done" && <ExtractionReport summary={scan.summary} />}
 
         <div className="rule" role="presentation" />
 

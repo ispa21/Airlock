@@ -11,7 +11,9 @@ only then lets you export an AI-safe copy. Everything runs on the device; no
 external LLM, OCR or NER service is ever used, and the privacy engine works
 with the internet disabled.
 
-> Status: **Phase 1 complete** (desktop shell, local engine, IPC). See
+> Status: **Phase 2 complete**: desktop shell, local engine, IPC, and local
+> extraction of every text-bearing part of PDF, Office, text/code/config and
+> image files (with offline OCR). Detection is next. See
 > [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Repository
@@ -23,7 +25,7 @@ with the internet disabled.
 | `apps/browser-extension` | V2 placeholder |
 | `licensing` | Offline license-issuer tooling (never shipped) |
 | `tests` | Cross-component fixtures and end-to-end suites |
-| `docs` | [Architecture](docs/ARCHITECTURE.md) · [IPC](docs/IPC.md) · [Security](docs/SECURITY.md) · [Testing](docs/TESTING.md) · [Roadmap](docs/ROADMAP.md) |
+| `docs` | [Architecture](docs/ARCHITECTURE.md) · [IPC](docs/IPC.md) · [Security](docs/SECURITY.md) · [Testing](docs/TESTING.md) · [Roadmap](docs/ROADMAP.md) · [Third-party](docs/THIRD_PARTY.md) |
 
 ## Development
 

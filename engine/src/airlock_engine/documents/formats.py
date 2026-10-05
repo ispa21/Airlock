@@ -45,24 +45,30 @@ class FormatSpec:
     support: Support
 
 
+_YES: Final = Support.AVAILABLE
+_NO: Final = Support.UNSUPPORTED
+
 _SPECS: Final[tuple[FormatSpec, ...]] = (
-    FormatSpec("pdf", "PDF document", Family.DOCUMENT, ("pdf",), Support.PLANNED),
-    FormatSpec("docx", "Word document", Family.DOCUMENT, ("docx",), Support.PLANNED),
-    FormatSpec("xlsx", "Excel workbook", Family.SPREADSHEET, ("xlsx",), Support.PLANNED),
-    FormatSpec("pptx", "PowerPoint presentation", Family.PRESENTATION, ("pptx",), Support.PLANNED),
-    FormatSpec("csv", "CSV spreadsheet", Family.SPREADSHEET, ("csv",), Support.PLANNED),
-    FormatSpec("tsv", "TSV spreadsheet", Family.SPREADSHEET, ("tsv",), Support.PLANNED),
-    FormatSpec("txt", "Text file", Family.TEXT, ("txt", "md", "log"), Support.PLANNED),
-    FormatSpec("png", "PNG image", Family.IMAGE, ("png",), Support.PLANNED),
-    FormatSpec("jpeg", "JPEG image", Family.IMAGE, ("jpg", "jpeg"), Support.PLANNED),
-    FormatSpec("webp", "WebP image", Family.IMAGE, ("webp",), Support.PLANNED),
-    FormatSpec("tiff", "TIFF image", Family.IMAGE, ("tif", "tiff"), Support.PLANNED),
-    FormatSpec("json", "JSON file", Family.CONFIG, ("json",), Support.PLANNED),
-    FormatSpec("yaml", "YAML file", Family.CONFIG, ("yaml", "yml"), Support.PLANNED),
-    FormatSpec("xml", "XML file", Family.CONFIG, ("xml",), Support.PLANNED),
-    FormatSpec("toml", "TOML file", Family.CONFIG, ("toml",), Support.PLANNED),
-    FormatSpec("ini", "INI file", Family.CONFIG, ("ini", "cfg", "conf"), Support.PLANNED),
-    FormatSpec("env", "Environment file", Family.CONFIG, ("env",), Support.PLANNED),
+    FormatSpec("pdf", "PDF document", Family.DOCUMENT, ("pdf",), _YES),
+    FormatSpec("docx", "Word document", Family.DOCUMENT, ("docx",), _YES),
+    FormatSpec("docm", "Word document with macros", Family.DOCUMENT, ("docm",), _YES),
+    FormatSpec("xlsx", "Excel workbook", Family.SPREADSHEET, ("xlsx",), _YES),
+    FormatSpec("xlsm", "Excel workbook with macros", Family.SPREADSHEET, ("xlsm",), _YES),
+    FormatSpec("pptx", "PowerPoint presentation", Family.PRESENTATION, ("pptx",), _YES),
+    FormatSpec("pptm", "PowerPoint with macros", Family.PRESENTATION, ("pptm",), _YES),
+    FormatSpec("csv", "CSV spreadsheet", Family.SPREADSHEET, ("csv",), _YES),
+    FormatSpec("tsv", "TSV spreadsheet", Family.SPREADSHEET, ("tsv",), _YES),
+    FormatSpec("txt", "Text file", Family.TEXT, ("txt", "md", "log"), _YES),
+    FormatSpec("png", "PNG image", Family.IMAGE, ("png",), _YES),
+    FormatSpec("jpeg", "JPEG image", Family.IMAGE, ("jpg", "jpeg"), _YES),
+    FormatSpec("webp", "WebP image", Family.IMAGE, ("webp",), _YES),
+    FormatSpec("tiff", "TIFF image", Family.IMAGE, ("tif", "tiff"), _YES),
+    FormatSpec("json", "JSON file", Family.CONFIG, ("json",), _YES),
+    FormatSpec("yaml", "YAML file", Family.CONFIG, ("yaml", "yml"), _YES),
+    FormatSpec("xml", "XML file", Family.CONFIG, ("xml",), _YES),
+    FormatSpec("toml", "TOML file", Family.CONFIG, ("toml",), _YES),
+    FormatSpec("ini", "INI file", Family.CONFIG, ("ini", "cfg", "conf"), _YES),
+    FormatSpec("env", "Environment file", Family.CONFIG, ("env",), _YES),
     FormatSpec(
         "code",
         "Source code",
@@ -71,18 +77,18 @@ _SPECS: Final[tuple[FormatSpec, ...]] = (
             "py", "js", "ts", "jsx", "tsx", "java", "c", "h", "cpp", "hpp", "cs", "go",
             "rs", "php", "rb", "swift", "kt", "sql", "sh", "ps1",
         ),
-        Support.PLANNED,
+        _YES,
     ),
     # Recognised so we can give a precise message, not yet handled.
-    FormatSpec("doc", "Legacy Word document", Family.DOCUMENT, ("doc",), Support.UNSUPPORTED),
-    FormatSpec("xls", "Legacy Excel workbook", Family.SPREADSHEET, ("xls",), Support.UNSUPPORTED),
-    FormatSpec("ppt", "Legacy PowerPoint", Family.PRESENTATION, ("ppt",), Support.UNSUPPORTED),
-    FormatSpec("rtf", "Rich Text document", Family.DOCUMENT, ("rtf",), Support.UNSUPPORTED),
-    FormatSpec("odt", "OpenDocument text", Family.DOCUMENT, ("odt",), Support.UNSUPPORTED),
-    FormatSpec("ods", "OpenDocument spreadsheet", Family.SPREADSHEET, ("ods",), Support.UNSUPPORTED),  # noqa: E501
-    FormatSpec("odp", "OpenDocument presentation", Family.PRESENTATION, ("odp",), Support.UNSUPPORTED),  # noqa: E501
-    FormatSpec("eml", "E-mail message", Family.DOCUMENT, ("eml",), Support.UNSUPPORTED),
-    FormatSpec("msg", "Outlook message", Family.DOCUMENT, ("msg",), Support.UNSUPPORTED),
+    FormatSpec("doc", "Legacy Word document", Family.DOCUMENT, ("doc",), _NO),
+    FormatSpec("xls", "Legacy Excel workbook", Family.SPREADSHEET, ("xls",), _NO),
+    FormatSpec("ppt", "Legacy PowerPoint", Family.PRESENTATION, ("ppt",), _NO),
+    FormatSpec("rtf", "Rich Text document", Family.DOCUMENT, ("rtf",), _NO),
+    FormatSpec("odt", "OpenDocument text", Family.DOCUMENT, ("odt",), _NO),
+    FormatSpec("ods", "OpenDocument spreadsheet", Family.SPREADSHEET, ("ods",), _NO),
+    FormatSpec("odp", "OpenDocument presentation", Family.PRESENTATION, ("odp",), _NO),
+    FormatSpec("eml", "E-mail message", Family.DOCUMENT, ("eml",), _NO),
+    FormatSpec("msg", "Outlook message", Family.DOCUMENT, ("msg",), _NO),
 )  # fmt: skip
 
 _BY_EXTENSION: Final[dict[str, FormatSpec]] = {
@@ -100,6 +106,7 @@ _OOXML_MAIN_PART: Final = {
     "xlsx": "xl/workbook.xml",
     "pptx": "ppt/presentation.xml",
 }
+_OOXML_ALIASES: Final = {"docm": "docx", "xlsm": "xlsx", "pptm": "pptx"}
 _ODF_MIMETYPES: Final = {
     "odt": b"application/vnd.oasis.opendocument.text",
     "ods": b"application/vnd.oasis.opendocument.spreadsheet",
@@ -117,26 +124,55 @@ def spec_for_extension(extension: str) -> FormatSpec | None:
 
 
 def extension_of(path: Path) -> str:
-    name = path.name.lower()
+    return extension_of_name(path.name)
+
+
+def extension_of_name(name: str) -> str:
+    name = name.replace("\\", "/").rsplit("/", 1)[-1].lower()
     # ".env", ".env.local", "production.env" are all environment files.
     if name == ".env" or name.startswith(".env."):
         return "env"
-    return path.suffix.lower().lstrip(".")
+    stem, dot, ext = name.rpartition(".")
+    return ext if dot and stem else ""
 
 
 def sniff(path: Path, spec: FormatSpec) -> None:
     """Raise an :class:`AirlockError` unless ``path``'s bytes match ``spec``."""
-    ext = extension_of(path)
     with path.open("rb") as handle:
-        head = handle.read(_HEAD_BYTES)
-        if spec.format_id in _OOXML_MAIN_PART:
-            _sniff_ooxml(handle, head, spec, ext)
-        elif spec.format_id in _ODF_MIMETYPES:
-            _sniff_odf(handle, head, spec, ext)
-        elif spec.format_id in ("doc", "xls", "ppt", "msg"):
-            _require(head.startswith(_OLE2_MAGIC), ext, _describe(head))
-        else:
-            _sniff_simple(head, spec, ext)
+        sniff_stream(handle, spec, extension_of(path))
+
+
+def sniff_stream(handle: BinaryIO, spec: FormatSpec, ext: str) -> None:
+    """Like :func:`sniff` for an open, seekable binary stream (e.g. an embedded file)."""
+    handle.seek(0)
+    head = handle.read(_HEAD_BYTES)
+    if spec.format_id in _OOXML_MAIN_PART or spec.format_id in _OOXML_ALIASES:
+        _sniff_ooxml(handle, head, spec, ext)
+    elif spec.format_id in _ODF_MIMETYPES:
+        _sniff_odf(handle, head, spec, ext)
+    elif spec.format_id in ("doc", "xls", "ppt", "msg"):
+        _require(head.startswith(_OLE2_MAGIC), ext, _describe(head))
+    else:
+        _sniff_simple(head, spec, ext)
+
+
+def detect_format(head: bytes, names: set[str] | None = None) -> str | None:
+    """Best-effort format id from content alone (used for embedded files)."""
+    if b"%PDF-" in head[:1024]:
+        return "pdf"
+    if head.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if head.startswith(b"\xff\xd8\xff"):
+        return "jpeg"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "webp"
+    if head[:4] in (b"II*\x00", b"MM\x00*"):
+        return "tiff"
+    if names is not None and "[Content_Types].xml" in names:
+        for format_id, main in _OOXML_MAIN_PART.items():
+            if main in names:
+                return format_id
+    return None
 
 
 def _sniff_simple(head: bytes, spec: FormatSpec, ext: str) -> None:
@@ -166,8 +202,9 @@ def _sniff_ooxml(handle: BinaryIO, head: bytes, spec: FormatSpec, ext: str) -> N
         raise errors.format_mismatch(ext, "a legacy Office file")
     _require(head.startswith(_ZIP_MAGIC), ext, _describe(head))
     names = _zip_names(handle, ext)
+    main_part = _OOXML_MAIN_PART[_OOXML_ALIASES.get(spec.format_id, spec.format_id)]
     _require(
-        "[Content_Types].xml" in names and _OOXML_MAIN_PART[spec.format_id] in names,
+        "[Content_Types].xml" in names and main_part in names,
         ext,
         "a different kind of Office file" if "[Content_Types].xml" in names else "a ZIP archive",
     )

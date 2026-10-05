@@ -45,3 +45,32 @@ def sample_files(tmp_path: Path) -> dict[str, Path]:
     files["xlsx"] = make_ooxml(tmp_path / "payroll.xlsx", "xl/workbook.xml")
     files["pptx"] = make_ooxml(tmp_path / "board.pptx", "ppt/presentation.xml")
     return files
+
+
+# ---------------------------------------------------------------- Phase 2
+import re as _re  # noqa: E402
+
+from airlock_engine.core.models import ExtractedDocument, SegmentKind  # noqa: E402
+
+CANARY = _re.compile(r"CANARY[_ A-Z0-9]*[A-Z0-9]")
+
+
+@pytest.fixture(scope="session")
+def ocr_provider():  # type: ignore[no-untyped-def]
+    """One OCR model per test session (loading it takes about a second)."""
+    from airlock_engine.extraction.ocr import RapidOcrProvider
+
+    return RapidOcrProvider()
+
+
+def canaries(doc: ExtractedDocument, kind: SegmentKind | None = None) -> set[str]:
+    return {
+        match
+        for segment in doc.segments
+        if kind is None or segment.kind is kind
+        for match in CANARY.findall(segment.text)
+    }
+
+
+def kinds_of(doc: ExtractedDocument, needle: str) -> set[SegmentKind]:
+    return {s.kind for s in doc.segments if needle in s.text}
