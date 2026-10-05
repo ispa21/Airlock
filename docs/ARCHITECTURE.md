@@ -390,6 +390,38 @@ The Settings screen lists and edits company rules, duplicates and edits
 profiles (action and mask style per data type, default profile) and can
 forget the whole allow-list; closing it refreshes the open scan.
 
+## 5f. Verification and export (Phase 7)
+
+```
+sanitize.run ─▶ copy in <data dir>/work + CopyCheck (protected values, Airlock's
+                replacements, values the user kept; engine memory only)
+verify.run   ─▶ worker: SHA-256 must match ─▶ extract the copy (OCR as in the scan)
+                        └─▶ raw search: every part decompressed, embedded Office
+                            files too, font names ignored
+             ─▶ engine: every detector again ─▶ evaluate
+                        protected value left (text, letter case, reformatted,
+                        stored bytes) or unreadable content  → failed
+                        new finding (not a replacement, not kept) → review
+                        otherwise → passed
+export_save  ─▶ host: native save dialog ─▶ export.save: verified hash, path rules,
+                temp file in the same folder, fsync, replace
+export.text  ─▶ readable text of the checked copy (clipboard: "Copy Text for AI")
+```
+
+* **Fail closed.** A copy that cannot be read back, has content that cannot
+  be checked, or still contains a protected value cannot be saved or copied.
+  The user can only create it again with stronger choices.
+* **Review, not guesswork.** Findings the original scan did not have (for
+  example a name the language model only recognises after masking) are shown
+  with masked previews; the copy is usable only after the user confirms.
+* **Matches inside Airlock's own replacements** (a fake name such as "Sam
+  Example" when "Sam" was protected) are not leaks, and font family names in
+  Office packages are not document content.
+* **The web view never names a destination.** The host shows the dialog; the
+  engine still validates the path (absolute, existing folder, the copy's own
+  extension, not the original, not Airlock's folders, not a link) and writes
+  atomically.
+
 ## 6. Data model
 
 ### 6.1 In-memory (engine)

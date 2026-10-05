@@ -58,6 +58,8 @@ def worker_entry(conn: Connection, job: dict[str, Any]) -> None:
             from airlock_engine.documents.sanitize import sanitize_failed
 
             error = sanitize_failed()
+        elif job.get("op") == "verify":
+            error = errors.verification_unreadable()
         else:
             error = errors.extraction_failed(str(job.get("format_label", "file")))
         _send(conn, {"type": "error", "error": error.to_data()})
@@ -71,6 +73,8 @@ def _run(conn: Connection, job: dict[str, Any]) -> Any:
         return _extract(conn, job)
     if op == "sanitize":
         return _sanitize(job)
+    if op == "verify":
+        return _verify(conn, job)
     if os.environ.get(TEST_OPS_ENV) == "1":
         return _test_op(op, job)
     raise ValueError("unknown worker operation")
@@ -110,6 +114,39 @@ def _extract(conn: Connection, job: dict[str, Any]) -> dict[str, Any]:
     # Lets the protected copy be tied to exactly the bytes that were scanned.
     wire["source_sha256"] = hashlib.sha256(data).hexdigest()
     return wire
+
+
+def _verify(conn: Connection, job: dict[str, Any]) -> dict[str, Any]:
+    """Read a protected copy back exactly like an original, and search its
+    stored bytes for the values that must be gone (Phase 7)."""
+    from airlock_engine.core import errors
+    from airlock_engine.documents import formats
+    from airlock_engine.extraction.context import ExtractionOptions
+    from airlock_engine.extraction.pipeline import extract_bytes
+    from airlock_engine.extraction.wire import document_to_wire
+    from airlock_engine.verification.raw import raw_hits
+
+    data = Path(job["path"]).read_bytes()
+    if hashlib.sha256(data).hexdigest() != job["sha256"]:
+        raise errors.copy_changed()
+    spec = formats.spec_for_extension(job["extension"])
+    if spec is None or spec.format_id != job["format"]:
+        raise errors.unsupported_format(job["extension"])
+    formats.sniff_stream(io.BytesIO(data), spec, job["extension"])
+
+    def progress(stage: str, done: int, total: int) -> None:
+        _send(conn, {"type": "progress", "stage": stage, "done": done, "total": total})
+
+    document = extract_bytes(
+        data,
+        spec.format_id,
+        ExtractionOptions.from_wire(job.get("options", {})),
+        progress=progress,
+    )
+    progress("raw", 0, 1)
+    hits = raw_hits(data, list(job.get("values", [])), list(job.get("replacements", [])))
+    progress("raw", 1, 1)
+    return {"document": document_to_wire(document), "raw_hits": [list(h) for h in hits]}
 
 
 def _sanitize(job: dict[str, Any]) -> dict[str, Any]:

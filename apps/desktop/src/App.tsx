@@ -49,6 +49,8 @@ export function App() {
   const [profile, setProfile] = useState(FALLBACK_PROFILES[0]!.id);
   const [applying, setApplying] = useState(false);
   const [copy, setCopy] = useState<CopyState>({ status: "none" });
+  const [copyNote, setCopyNote] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Confirms a "Teach Airlock" step or a refresh, next to the findings.
   const [findingsNote, setFindingsNote] = useState<string | null>(null);
@@ -190,7 +192,7 @@ export function App() {
   const applyUpdate = useCallback((update: PolicyUpdate) => {
     // Decisions changed: a copy made with the old ones must not be used.
     setCopy((current) => {
-      if (current.status === "ready") {
+      if (current.status === "ready" || current.status === "verifying") {
         void platform.discardCopy(current.result.artifact_id).catch(() => undefined);
         return { status: "stale" };
       }
@@ -282,19 +284,31 @@ export function App() {
   const createCopy = useCallback(async () => {
     if (scan.status !== "done") return;
     const scanId = scan.result.scan_id;
+    if (copy.status === "ready") void platform.discardCopy(copy.result.artifact_id).catch(() => undefined);
     const tag = newTag();
     copyTag.current = tag;
     setError(null);
+    setCopyNote(null);
     setCopy({ status: "running" });
+    let artifactId: string | null = null;
     try {
       const result = await platform.sanitize(scanId, tag, () => undefined);
+      artifactId = result.artifact_id;
       if (copyTag.current !== tag) {
         void platform.discardCopy(result.artifact_id).catch(() => undefined);
         return;
       }
-      setCopy({ status: "ready", result });
+      // Every copy is read back and checked before it can leave Airlock.
+      setCopy({ status: "verifying", result });
+      const check = await platform.verify(result.artifact_id, tag, () => undefined);
+      if (copyTag.current !== tag) {
+        void platform.discardCopy(result.artifact_id).catch(() => undefined);
+        return;
+      }
+      setCopy({ status: "ready", result, check });
     } catch (err) {
       if (copyTag.current !== tag) return;
+      if (artifactId) void platform.discardCopy(artifactId).catch(() => undefined);
       const failure = toEngineError(err);
       setCopy({ status: "none" });
       if (failure.kind === "cancelled") setNotice("Protected copy cancelled. Your file was not changed.");
@@ -302,7 +316,59 @@ export function App() {
     } finally {
       if (copyTag.current === tag) copyTag.current = null;
     }
-  }, [platform, scan]);
+  }, [platform, scan, copy]);
+
+  const saveCopy = useCallback(
+    async (asText: boolean, acknowledgeReview: boolean) => {
+      if (copy.status !== "ready") return;
+      setError(null);
+      setCopyNote(null);
+      setExporting(true);
+      try {
+        const result = await platform.saveCopy(copy.result.artifact_id, { asText, acknowledgeReview });
+        if (result.saved) {
+          setCopyNote(`Saved as “${result.file_name ?? copy.result.file_name}”.`);
+        }
+      } catch (err) {
+        setError(toEngineError(err));
+      } finally {
+        setExporting(false);
+      }
+    },
+    [platform, copy],
+  );
+
+  const copyText = useCallback(
+    async (acknowledgeReview: boolean) => {
+      if (copy.status !== "ready") return;
+      setError(null);
+      setCopyNote(null);
+      setExporting(true);
+      try {
+        const text = await platform.copyText(copy.result.artifact_id, acknowledgeReview);
+        await platform.writeClipboard(text);
+        setCopyNote(
+          `Copied the protected text (${new Intl.NumberFormat("en-US").format(text.length)} characters). ` +
+            "Paste it into your AI tool.",
+        );
+      } catch (err) {
+        const failure = toEngineError(err);
+        setError(
+          failure.kind === "unexpected"
+            ? {
+                kind: "clipboard_unavailable",
+                message: "Airlock could not put the text on the clipboard.",
+                next_step: "Use Save as Text instead.",
+                original_affected: false,
+              }
+            : failure,
+        );
+      } finally {
+        setExporting(false);
+      }
+    },
+    [platform, copy],
+  );
 
   const cancelCopy = useCallback(() => {
     if (copyTag.current) void platform.cancel(copyTag.current).catch(() => undefined);
@@ -325,7 +391,12 @@ export function App() {
             <button
               type="button"
               className="ghost brand__settings"
-              disabled={engine.state !== "ready" || scan.status === "running" || copy.status === "running"}
+              disabled={
+                engine.state !== "ready" ||
+                scan.status === "running" ||
+                copy.status === "running" ||
+                copy.status === "verifying"
+              }
               onClick={() => setSettingsOpen(true)}
             >
               Settings
@@ -390,14 +461,20 @@ export function App() {
                   onAction={changeAction}
                   onTeach={teach}
                   note={findingsNote}
-                  busy={applying || copy.status === "running"}
+                  busy={applying || copy.status === "running" || copy.status === "verifying"}
                 />
                 {scan.result.summary.total > 0 && (
                   <ProtectedCopy
                     state={copy}
                     policy={scan.result.policy}
-                    onCreate={() => void createCopy()}
-                    onCancel={cancelCopy}
+                    note={copyNote}
+                    busy={exporting}
+                    actions={{
+                      onCreate: () => void createCopy(),
+                      onCancel: cancelCopy,
+                      onSave: (asText, ack) => void saveCopy(asText, ack),
+                      onCopyText: (ack) => void copyText(ack),
+                    }}
                   />
                 )}
                 <ExtractionReport summary={scan.result.extraction} />

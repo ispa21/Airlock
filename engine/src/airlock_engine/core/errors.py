@@ -301,3 +301,105 @@ def cannot_teach_rule_match() -> AirlockError:
         message="This value was found by one of your company rules.",
         next_step="To stop protecting it, change or turn off the rule in Settings.",
     )
+
+
+# --- verification and export (Phase 7) -------------------------------------------
+
+
+def copy_not_found() -> AirlockError:
+    return AirlockError(
+        kind="copy_not_found",
+        message="This protected copy is no longer available.",
+        next_step="Create the protected copy again.",
+    )
+
+
+def copy_not_verified() -> AirlockError:
+    return AirlockError(
+        kind="copy_not_verified",
+        message="Airlock has not checked this protected copy yet, so it can't leave Airlock.",
+        next_step="Wait for the check to finish, then try again.",
+    )
+
+
+def verification_failed() -> AirlockError:
+    return AirlockError(
+        kind="verification_failed",
+        message="Airlock found protected data still in this copy, so it can't be saved or copied.",
+        next_step="Choose Redact for the items listed, then create the protected copy again.",
+    )
+
+
+def review_required() -> AirlockError:
+    return AirlockError(
+        kind="review_required",
+        message="Airlock found items in the copy that it had not flagged before.",
+        next_step="Look at the items listed and confirm before saving.",
+    )
+
+
+def copy_changed() -> AirlockError:
+    return AirlockError(
+        kind="copy_changed",
+        message="The protected copy changed after Airlock checked it.",
+        next_step="Create the protected copy again.",
+    )
+
+
+def export_destination_invalid() -> AirlockError:
+    return AirlockError(
+        kind="export_destination_invalid",
+        message="Airlock can't save the copy there.",
+        next_step="Choose a folder on this computer, such as Documents, and a new file name.",
+    )
+
+
+def export_wrong_extension(extension: str) -> AirlockError:
+    return AirlockError(
+        kind="export_wrong_extension",
+        message=f"The file name must end in .{extension} so the copy opens correctly.",
+        next_step=f"Save it again with a name ending in .{extension}.",
+    )
+
+
+def export_would_overwrite_original() -> AirlockError:
+    return AirlockError(
+        kind="export_would_overwrite_original",
+        message="That is your original file. Airlock never overwrites it.",
+        next_step="Choose a different file name for the protected copy.",
+    )
+
+
+def export_not_permitted() -> AirlockError:
+    return AirlockError(
+        kind="export_not_permitted",
+        message="Airlock is not allowed to write to that location, or the file is open in "
+        "another application.",
+        next_step="Close the file if it is open, or choose another folder.",
+    )
+
+
+def export_failed() -> AirlockError:
+    return AirlockError(
+        kind="export_failed",
+        message="The protected copy could not be saved.",
+        next_step="Check that the disk has free space, then try again.",
+    )
+
+
+def text_too_long() -> AirlockError:
+    return AirlockError(
+        kind="text_too_long",
+        message="This document's text is too long to copy in one go.",
+        next_step="Save it as a text file instead.",
+    )
+
+
+def verification_unreadable() -> AirlockError:
+    return AirlockError(
+        kind="verification_unreadable",
+        message="Airlock could not read the protected copy back to check it, so it can't be "
+        "saved or copied.",
+        next_step="Create the protected copy again. If it keeps happening, scan the file in "
+        "another format (for example PDF or DOCX).",
+    )

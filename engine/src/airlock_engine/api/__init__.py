@@ -5,7 +5,7 @@ from __future__ import annotations
 import atexit
 from pathlib import Path
 
-from airlock_engine.api import documents, profiles, rules, sanitize, scan, system
+from airlock_engine.api import documents, profiles, rules, sanitize, scan, system, verify
 from airlock_engine.ipc.server import MethodRegistry
 from airlock_engine.masking.artifacts import ArtifactStore
 from airlock_engine.scan import SessionStore
@@ -29,4 +29,6 @@ def build_registry(data_dir: Path | None = None) -> MethodRegistry:
     sanitize.register(
         registry, storage, sessions, artifacts, data_dir / "vault" if data_dir else None
     )
+    # A copy is never saved into Airlock's own folders (work folder, vault, database).
+    verify.register(registry, storage, artifacts, [data_dir] if data_dir else [])
     return registry

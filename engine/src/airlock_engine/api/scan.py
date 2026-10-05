@@ -103,6 +103,35 @@ def _profile(storage: Storage, profile_id: str | None) -> Profile:
         raise errors.storage_unavailable() from None
 
 
+def detect_document(
+    storage: Storage, document: ExtractedDocument, use_ner: bool, ctx: RequestContext
+) -> tuple[DetectionOutcome, _Context, str, float]:
+    """Run every detector with the current rules and allow-list (scans,
+    refreshes and the check of a protected copy)."""
+    started = time.perf_counter()
+    context = _Context(storage)
+    provider = None
+    ner_status = "disabled"
+    if use_ner:
+        ctx.progress("prepare", 0, 1)
+        provider = ner.shared_provider()
+        ner_status = "used" if provider is not None else "unavailable"
+    allow = context.allow
+    engine = DetectionEngine(
+        rules=context.rules,
+        ner=provider,
+        allow=allow.contains if allow is not None and allow.count() else None,
+    )
+    try:
+        outcome = engine.run(document, progress=ctx.progress, cancelled=lambda: ctx.cancelled)
+    except DetectionCancelled as exc:
+        safelog.log.info("scan_cancelled")
+        raise RequestCancelled from exc
+    if outcome.ner_truncated:
+        ner_status = "partial"
+    return outcome, context, ner_status, (time.perf_counter() - started) * 1000
+
+
 def _reload(storage: Storage, current: Profile) -> Profile:
     """The session's profile as stored now: it may have been edited or deleted."""
     try:
@@ -128,29 +157,7 @@ def register(
     def detect(
         document: ExtractedDocument, use_ner: bool, ctx: RequestContext
     ) -> tuple[DetectionOutcome, _Context, str, float]:
-        """Run every detector with the current rules and allow-list."""
-        started = time.perf_counter()
-        context = _Context(storage)
-        provider = None
-        ner_status = "disabled"
-        if use_ner:
-            ctx.progress("prepare", 0, 1)
-            provider = ner.shared_provider()
-            ner_status = "used" if provider is not None else "unavailable"
-        allow = context.allow
-        engine = DetectionEngine(
-            rules=context.rules,
-            ner=provider,
-            allow=allow.contains if allow is not None and allow.count() else None,
-        )
-        try:
-            outcome = engine.run(document, progress=ctx.progress, cancelled=lambda: ctx.cancelled)
-        except DetectionCancelled as exc:
-            safelog.log.info("scan_cancelled")
-            raise RequestCancelled from exc
-        if outcome.ner_truncated:
-            ner_status = "partial"
-        return outcome, context, ner_status, (time.perf_counter() - started) * 1000
+        return detect_document(storage, document, use_ner, ctx)
 
     def refresh_session(session: ScanSession, ctx: RequestContext) -> dict[str, Any]:
         outcome, context, ner_status, _ = detect(
@@ -189,6 +196,7 @@ def register(
             entities=context.entities(),
             ner_status=ner_status,
             use_ner=use_ner,
+            ocr=options.ocr,
             rule_count=len(context.rules),
             # Needed to create the protected copy from exactly these bytes.
             path=extraction.path,

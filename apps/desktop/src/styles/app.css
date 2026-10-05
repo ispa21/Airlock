@@ -1340,3 +1340,81 @@ select {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* Copy check and export (Phase 7) ---------------------------------------------- */
+.copy__verified {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-tint);
+  color: var(--accent-ink);
+  font-size: 13px;
+  font-weight: 550;
+}
+
+.copy__verified-icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+
+.copy__check {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.remaining {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--line);
+}
+
+.remaining__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 2px 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+}
+
+.remaining__where {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.copy__ack {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 550;
+}
+
+.copy__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.copy__actions .primary {
+  flex: 1 1 100%;
+}
+
+.copy__actions .ghost {
+  flex: 1 1 0;
+  height: 38px;
+}
+
+.copy__actions button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

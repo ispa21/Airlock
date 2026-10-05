@@ -40,6 +40,8 @@ class MaskPlan:
     paint: list[tuple[str, str, list[Box] | None]] = field(default_factory=list)
     #: replacement text → (original value, entity type), reversible replacements only.
     reversible: dict[str, tuple[str, str]] = field(default_factory=dict)
+    #: (original value, entity type) that must not be left in the copy (Phase 7 checks).
+    protected: list[tuple[str, str]] = field(default_factory=list)
     counts: Counter[str] = field(default_factory=Counter)
 
     def __repr__(self) -> str:  # holds original values
@@ -80,6 +82,7 @@ def build_plan(document: ExtractedDocument, decision: PolicyDecision) -> MaskPla
         )
         plan.edits.append((region.segment_id, region.start, region.end, text))
         plan.sweep.append((value, text))
+        plan.protected.append((value, primary.detection.entity_type))
         plan.counts[region.action.value] += 1
         # Covered findings: sweep their own values too, wherever else they appear.
         for member_id in region.member_ids:
@@ -89,6 +92,7 @@ def build_plan(document: ExtractedDocument, decision: PolicyDecision) -> MaskPla
             plan.sweep.append(
                 _member_sweep(replacer, member, segment, region.action, region.mask_style)
             )
+            plan.protected.append((plan.sweep[-1][0], member.detection.entity_type))
         if segment.boxes or _is_image_text(segment):
             key = (segment.locator.part, segment.locator.path)
             boxes = _boxes_for(segment, region.start, region.end)

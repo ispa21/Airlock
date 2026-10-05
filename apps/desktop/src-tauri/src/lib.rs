@@ -43,7 +43,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::engine_status,
             commands::engine_call,
-            commands::engine_cancel
+            commands::engine_cancel,
+            commands::export_save
         ])
         .build(tauri::generate_context!())
         .expect("failed to build the Airlock application");

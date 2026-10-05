@@ -308,7 +308,40 @@ export interface ScanResult {
   risk: RiskSummary;
 }
 
-/** Result of `sanitize.run`: a protected copy waiting for verification (Phase 7). */
+export type VerifyStatus = "passed" | "review" | "failed";
+
+/** Something found in a protected copy: a protected value left behind, or a new finding. */
+export interface RemainingItem {
+  reason: "protected" | "new";
+  entity_type: string;
+  entity_label: string;
+  preview: string;
+  location: { kind: string; label: string };
+  hidden: boolean;
+}
+
+/** Result of `verify.run`: the copy read back, searched and scanned again. */
+export interface VerifyResult {
+  artifact_id: string;
+  status: VerifyStatus;
+  passed: boolean;
+  checked: { protected_values: number; segments: number; ocr_used: boolean };
+  remaining_count: number;
+  new_count: number;
+  remaining: RemainingItem[];
+  unreadable: { label: string; count: number }[];
+  kept_count: number;
+  replacement_count: number;
+  duration_ms: number;
+}
+
+export interface ExportResult {
+  saved: boolean;
+  file_name?: string;
+  size_bytes?: number;
+}
+
+/** Result of `sanitize.run`: a protected copy waiting for verification. */
 export interface SanitizeResult {
   artifact_id: string;
   file_name: string;

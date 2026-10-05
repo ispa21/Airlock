@@ -20,8 +20,8 @@ from airlock_engine.documents import formats
 MAX_FILE_BYTES: Final = 200 * 1024 * 1024
 _MAX_PATH_CHARS: Final = 32_767  # Windows extended-length path limit
 # Win32 device namespace (\\.\PhysicalDrive0, \\.\pipe\x, \\?\GLOBALROOT\...).
-_DEVICE_PREFIXES: Final = ("\\\\.\\", "//./", "\\\\?\\globalroot", "\\\\?\\unc\\.\\")
-_RESERVED_WINDOWS_NAMES: Final = frozenset(
+DEVICE_PREFIXES: Final = ("\\\\.\\", "//./", "\\\\?\\globalroot", "\\\\?\\unc\\.\\")
+RESERVED_WINDOWS_NAMES: Final = frozenset(
     {"con", "prn", "aux", "nul"}
     | {f"com{i}" for i in range(1, 10)}
     | {f"lpt{i}" for i in range(1, 10)}
@@ -76,7 +76,7 @@ def _parse_path(raw_path: object) -> Path:
     if "\x00" in raw_path:
         raise errors.not_a_regular_file()
     lowered = raw_path.lower()
-    if lowered.startswith(_DEVICE_PREFIXES):
+    if lowered.startswith(DEVICE_PREFIXES):
         raise errors.not_a_regular_file()
     path = Path(raw_path)
     if not path.is_absolute():
@@ -84,6 +84,6 @@ def _parse_path(raw_path: object) -> Path:
         # an attempt to resolve against the engine's working directory.
         raise errors.file_not_found()
     stem = path.name.split(".", 1)[0].lower()
-    if os.name == "nt" and stem in _RESERVED_WINDOWS_NAMES:
+    if os.name == "nt" and stem in RESERVED_WINDOWS_NAMES:
         raise errors.not_a_regular_file()
     return path

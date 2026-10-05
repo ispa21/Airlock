@@ -15,6 +15,7 @@ import type {
   RiskSummary,
   RuleList,
   ScanResult,
+  VerifyResult,
 } from "./engine/types";
 
 const INFO = {
@@ -171,6 +172,20 @@ async function scanned(platform: Platform) {
   await screen.findByRole("heading", { name: "What Airlock found" });
 }
 
+const CHECKED: VerifyResult = {
+  artifact_id: "art_0123456789abcdef",
+  status: "passed",
+  passed: true,
+  checked: { protected_values: 2, segments: 40, ocr_used: true },
+  remaining_count: 0,
+  new_count: 0,
+  remaining: [],
+  unreadable: [],
+  kept_count: 0,
+  replacement_count: 2,
+  duration_ms: 300,
+};
+
 function fakePlatform(overrides: Partial<Platform> = {}) {
   let drop: DropHandlers | undefined;
   const platform: Platform = {
@@ -205,6 +220,10 @@ function fakePlatform(overrides: Partial<Platform> = {}) {
     deleteProfile: vi.fn().mockResolvedValue(undefined),
     setDefaultProfile: vi.fn().mockResolvedValue(undefined),
     sanitize: vi.fn().mockResolvedValue(COPY),
+    verify: vi.fn().mockResolvedValue(CHECKED),
+    saveCopy: vi.fn().mockResolvedValue({ saved: true, file_name: "Contract (Airlock protected).docx" }),
+    copyText: vi.fn().mockResolvedValue("Contact [PERSON_1] at [EMAIL_1].\n"),
+    writeClipboard: vi.fn().mockResolvedValue(undefined),
     discardCopy: vi.fn().mockResolvedValue(undefined),
     cancel: vi.fn().mockResolvedValue(undefined),
     onFileDrop: vi.fn(async (handlers: DropHandlers) => {
@@ -437,6 +456,92 @@ describe("App", () => {
     await userEvent.selectOptions(screen.getByLabelText("Action for E-mail address f2"), "REDACT");
     await waitFor(() => expect(platform.discardCopy).toHaveBeenCalledWith("art_0123456789abcdef"));
     expect(screen.getByText("Your choices changed, so the previous copy was discarded.")).toBeInTheDocument();
+  });
+
+  it("checks every copy, then saves it or copies its text for AI", async () => {
+    const { platform } = fakePlatform();
+    await scanned(platform);
+    await userEvent.click(screen.getByRole("button", { name: "Create Protected Copy" }));
+    expect(platform.verify).toHaveBeenCalledWith("art_0123456789abcdef", expect.stringMatching(/^scan-/), expect.any(Function));
+    expect(
+      await screen.findByText(/Checked: Airlock read the copy back and none of the 2 protected values are in it/),
+    ).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Save Protected Copy…" }));
+    expect(platform.saveCopy).toHaveBeenCalledWith("art_0123456789abcdef", { asText: false, acknowledgeReview: false });
+    expect(await screen.findByText(/Saved as “Contract \(Airlock protected\).docx”/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Copy Text for AI" }));
+    expect(platform.copyText).toHaveBeenCalledWith("art_0123456789abcdef", false);
+    expect(platform.writeClipboard).toHaveBeenCalledWith("Contact [PERSON_1] at [EMAIL_1].\n");
+    expect(await screen.findByText(/Copied the protected text \(33 characters\)/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Save as Text…" }));
+    expect(platform.saveCopy).toHaveBeenLastCalledWith("art_0123456789abcdef", { asText: true, acknowledgeReview: false });
+  });
+
+  it("asks the user to look at new findings before the copy can be used", async () => {
+    const review: VerifyResult = {
+      ...CHECKED,
+      status: "review",
+      passed: false,
+      new_count: 1,
+      remaining: [
+        {
+          reason: "new", entity_type: "PERSON", entity_label: "Person name", preview: "Ra••••ma",
+          location: { kind: "body", label: "Body · paragraph 4" }, hidden: false,
+        },
+      ],
+    };
+    const { platform } = fakePlatform({ verify: vi.fn().mockResolvedValue(review) });
+    await scanned(platform);
+    await userEvent.click(screen.getByRole("button", { name: "Create Protected Copy" }));
+    expect(await screen.findByText("Airlock found 1 item in the copy that it had not flagged before")).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Found in the copy" })).toHaveTextContent("Ra••••ma");
+    const save = screen.getByRole("button", { name: "Save Protected Copy…" });
+    expect(save).toBeDisabled();
+    await userEvent.click(screen.getByRole("checkbox", { name: /I've looked at these items/ }));
+    expect(save).toBeEnabled();
+    await userEvent.click(save);
+    expect(platform.saveCopy).toHaveBeenCalledWith("art_0123456789abcdef", { asText: false, acknowledgeReview: true });
+  });
+
+  it("never offers to save a copy that failed its check", async () => {
+    const failed: VerifyResult = {
+      ...CHECKED,
+      status: "failed",
+      passed: false,
+      remaining_count: 1,
+      remaining: [
+        {
+          reason: "protected", entity_type: "EMAIL", entity_label: "E-mail address", preview: "r••••@example.invalid",
+          location: { kind: "file_data", label: "Stored inside the file (word/settings.xml)" }, hidden: true,
+        },
+      ],
+    };
+    const { platform } = fakePlatform({ verify: vi.fn().mockResolvedValue(failed) });
+    await scanned(platform);
+    await userEvent.click(screen.getByRole("button", { name: "Create Protected Copy" }));
+    expect(await screen.findByText("This copy can't leave Airlock")).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Still in the copy" })).toHaveTextContent(
+      "Stored inside the file (word/settings.xml)",
+    );
+    expect(screen.queryByRole("button", { name: "Save Protected Copy…" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy Text for AI" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create Again" })).toBeEnabled();
+  });
+
+  it("discards the copy when it cannot be checked", async () => {
+    const failure: EngineError = {
+      kind: "verification_unreadable",
+      message: "Airlock could not read the protected copy back to check it, so it can't be saved or copied.",
+    };
+    const { platform } = fakePlatform({ verify: vi.fn().mockRejectedValue(failure) });
+    await scanned(platform);
+    await userEvent.click(screen.getByRole("button", { name: "Create Protected Copy" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(failure.message);
+    expect(platform.discardCopy).toHaveBeenCalledWith("art_0123456789abcdef");
+    expect(screen.getByRole("button", { name: "Create Protected Copy" })).toBeEnabled();
   });
 
   it("cannot create a copy while items are blocked", async () => {

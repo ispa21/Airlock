@@ -1,5 +1,6 @@
 import type {
   EngineInfo,
+  ExportResult,
   InspectResult,
   NewRule,
   Override,
@@ -13,6 +14,7 @@ import type {
   SanitizeResult,
   ScanResult,
   TeachKind,
+  VerifyResult,
 } from "./types";
 
 export interface DropHandlers {
@@ -58,6 +60,16 @@ export interface Platform {
   setDefaultProfile(id: string): Promise<void>;
   /** Write the protected copy (in Airlock's private work folder). Cancellable by `tag`. */
   sanitize(scanId: string, tag: string, onProgress: (progress: Progress) => void): Promise<SanitizeResult>;
+  /** Read the copy back, search it and scan it again. Cancellable by `tag`. */
+  verify(artifactId: string, tag: string, onProgress: (progress: Progress) => void): Promise<VerifyResult>;
+  /**
+   * Save a checked copy (or its text). The host shows the save dialog; the UI
+   * never names a path. Resolves `{saved: false}` if the user cancels.
+   */
+  saveCopy(artifactId: string, options: { asText: boolean; acknowledgeReview: boolean }): Promise<ExportResult>;
+  /** The checked copy's readable text, for pasting into an AI tool. */
+  copyText(artifactId: string, acknowledgeReview: boolean): Promise<string>;
+  writeClipboard(text: string): Promise<void>;
   /** Delete a protected copy that is no longer wanted. */
   discardCopy(artifactId: string): Promise<void>;
   /** Ask the engine to forget a scan's text and findings. */

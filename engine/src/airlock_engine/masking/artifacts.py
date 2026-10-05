@@ -16,7 +16,10 @@ import tempfile
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from airlock_engine.verification.verifier import CopyCheck, Verification
 
 
 @dataclass
@@ -30,6 +33,15 @@ class Artifact:
     sha256: str = ""
     removed: list[tuple[str, str]] = field(default_factory=list)
     summary: dict[str, Any] = field(default_factory=dict)
+    #: The scanned original: a copy is never saved over it.
+    source_path: str = ""
+    #: What the copy must not contain (original values: memory only).
+    check: CopyCheck | None = None
+    #: Result of verify.run and the exact bytes it approved.
+    verification: Verification | None = None
+    verified_sha256: str = ""
+    #: The copy's readable text, kept after a successful check (sanitised only).
+    verified_text: str | None = None
 
     def __repr__(self) -> str:
         return f"Artifact(id={self.artifact_id}, format={self.format_id})"
@@ -60,7 +72,14 @@ class ArtifactStore:
                 removed += 1
         return removed
 
-    def create(self, scan_id: str, format_id: str, extension: str, original_name: str) -> Artifact:
+    def create(
+        self,
+        scan_id: str,
+        format_id: str,
+        extension: str,
+        original_name: str,
+        source_path: str = "",
+    ) -> Artifact:
         artifact_id = f"art_{secrets.token_hex(8)}"
         stem = original_name.rsplit(".", 1)[0] if "." in original_name else original_name
         ext = "pdf" if format_id == "pdf" else extension
@@ -69,6 +88,7 @@ class ArtifactStore:
             scan_id=scan_id,
             path=self.work_dir / f"{artifact_id}.{ext or 'bin'}",
             format_id=format_id,
+            source_path=source_path,
             suggested_name=f"{stem} (Airlock protected).{ext}"
             if ext
             else f"{stem} (Airlock protected)",

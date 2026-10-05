@@ -10,6 +10,7 @@ from typing import Any
 
 from airlock_engine import safelog
 from airlock_engine.core import errors
+from airlock_engine.core.models import Action
 from airlock_engine.extraction import isolation
 from airlock_engine.ipc.server import (
     InvalidParams,
@@ -25,6 +26,7 @@ from airlock_engine.masking.vault import Vault, VaultEntry, VaultError
 from airlock_engine.scan import SessionStore
 from airlock_engine.security.keyprotect import KeyProtectionError, MemoryProtector
 from airlock_engine.storage import Storage, StorageError
+from airlock_engine.verification.verifier import CopyCheck, normalize
 
 #: Text accepted by vault.restore (an AI response), in characters.
 MAX_RESTORE_CHARS = 2_000_000
@@ -66,7 +68,7 @@ def register(
         """Create the protected copy for a scan, using its current decisions.
 
         Runs in an isolated worker. The copy goes to Airlock's private work
-        folder; saving it elsewhere happens after verification (Phase 7).
+        folder; it can only be saved or copied after ``verify.run`` passes.
         """
         session = sessions.get(require_str(params, "scan_id", max_len=64))
         if session is None:
@@ -86,7 +88,11 @@ def register(
             wire["pdf_pages"] = pdf_sections(session.document, plan)
 
         artifact = artifacts.create(
-            session.scan_id, session.format_id, meta.get("extension", ""), meta.get("name", "file")
+            session.scan_id,
+            session.format_id,
+            meta.get("extension", ""),
+            meta.get("name", "file"),
+            source_path=str(meta.get("path", "")),
         )
         started = time.perf_counter()
         safelog.log.info("sanitize_started", file_type=session.format_id)
@@ -120,6 +126,18 @@ def register(
         artifact.size_bytes = int(result.get("size_bytes", 0))
         artifact.sha256 = str(result.get("sha256", ""))
         artifact.removed = removed
+        artifact.check = CopyCheck(
+            protected=list(dict.fromkeys(plan.protected)),
+            replacements=frozenset(text for _, text in plan.sweep)
+            | frozenset(text for *_, text in plan.edits),
+            kept=frozenset(
+                normalize(f.detection.matched_value.reveal())
+                for f in decision.findings
+                if (f.effective_action or f.action) is Action.ALLOW
+            ),
+            use_ner=bool(meta.get("use_ner", True)),
+            ocr=bool(meta.get("ocr", True)),
+        )
 
         entries = [
             VaultEntry(text, original, entity_type)
@@ -152,7 +170,7 @@ def register(
             "replaced": {a: counts.get(a, 0) for a in ("MASK", "REDACT", "GENERALIZE")},
             "removed": [{"label": label, "count": n} for label, n in removed_summary.items()],
             "vault": vault_status,
-            # Phase 7 re-extracts and rescans the copy before it can be saved.
+            # verify.run must pass before the copy can be saved or copied.
             "verified": False,
             "duration_ms": round((time.perf_counter() - started) * 1000),
         }

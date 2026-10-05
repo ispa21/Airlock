@@ -7,6 +7,7 @@ import type { DropHandlers, Platform } from "./platform";
 import {
   toEngineError,
   type EngineInfo,
+  type ExportResult,
   type InspectResult,
   type NewRule,
   type Override,
@@ -20,6 +21,7 @@ import {
   type SanitizeResult,
   type ScanResult,
   type TeachKind,
+  type VerifyResult,
 } from "./types";
 
 async function call<T>(method: string, params: Record<string, unknown> = {}, tag?: string): Promise<T> {
@@ -82,6 +84,36 @@ export const tauriPlatform: Platform = {
 
   sanitize(scanId: string, tag: string, onProgress: (progress: Progress) => void) {
     return withProgress(tag, onProgress, () => call<SanitizeResult>("sanitize.run", { scan_id: scanId }, tag));
+  },
+
+  verify(artifactId: string, tag: string, onProgress: (progress: Progress) => void) {
+    return withProgress(tag, onProgress, () =>
+      call<VerifyResult>("verify.run", { artifact_id: artifactId }, tag),
+    );
+  },
+
+  async saveCopy(artifactId: string, options: { asText: boolean; acknowledgeReview: boolean }) {
+    try {
+      return await invoke<ExportResult>("export_save", {
+        artifactId,
+        asText: options.asText,
+        acknowledgeReview: options.acknowledgeReview,
+      });
+    } catch (error) {
+      throw toEngineError(error);
+    }
+  },
+
+  async copyText(artifactId: string, acknowledgeReview: boolean) {
+    const result = await call<{ text: string }>("export.text", {
+      artifact_id: artifactId,
+      acknowledge_review: acknowledgeReview,
+    });
+    return result.text;
+  },
+
+  async writeClipboard(text: string) {
+    await navigator.clipboard.writeText(text);
   },
 
   async discardCopy(artifactId: string) {

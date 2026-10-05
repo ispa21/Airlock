@@ -12,8 +12,8 @@ done when its exit criteria pass on a real run, not when it compiles.
 | 4 | Policy | Profiles, entity → action mapping, defaults (credentials → BLOCK), overlap resolution, user overrides | ✅ Done |
 | 5 | Masking | Redaction, placeholder, typed placeholder, synthetic replacement, generalisation, reversible encrypted vault (DPAPI + AES-GCM), adapter `sanitize` for each format | ✅ Done |
 | 6 | Privacy report | Category summary, deterministic explainable risk, per-finding detector/confidence/action, partial masking, "teach Airlock" flow | ✅ Done |
-| 7 | Verification and export (next) | Re-extract the produced artifact, rescan, residual-value check, raw OOXML sweep, block on failure, safe export, AI-safe copy | |
-| 8 | Windows packaging | PyInstaller onedir engine, NSIS installer, WebView2 strategy, code signing, firewall rule option, tauri-driver E2E on Windows, clean-VM DoD run | |
+| 7 | Verification and export | Re-extract the produced artifact, rescan, residual-value check, raw OOXML sweep, block on failure, safe export, AI-safe copy | ✅ Done |
+| 8 | Windows packaging (next) | PyInstaller onedir engine, NSIS installer, WebView2 strategy, code signing, firewall rule option, tauri-driver E2E on Windows, clean-VM DoD run | |
 | 9 | ~~Right-click integration~~ | Skipped by decision (2026-10-05): files are opened by drag-and-drop or Browse in every surface | ⏭ Skipped |
 | 10 | Lifetime licensing | Ed25519 signed licences, offline import, online activation (isolated from the engine), local verification | |
 | 11 | Browser extension foundation | MV3 extension for Chrome and Edge. Uses the local app's engine through native messaging when it is installed, otherwise the in-browser engine from Phase 14 | |
@@ -28,7 +28,7 @@ user's own device and are never uploaded; there is no cloud processing.
 
 | Surface | Where the engine runs | How the UI reaches it | Phase |
 | --- | --- | --- | --- |
-| Local app (desktop) | Bundled Python engine, child process of the app | Tauri host, stdio JSON-RPC (no socket) | 1-8 (1-6 done) |
+| Local app (desktop) | Bundled Python engine, child process of the app | Tauri host, stdio JSON-RPC (no socket) | 1-8 (1-7 done) |
 | Local web app | Same installed engine | User's browser → loopback HTTP with a per-launch secret | 13 |
 | Web app | Inside the user's browser (WebAssembly, Web Worker) | In-page messages; the website only serves static files | 14 |
 | Browser extension | Local app's engine (native messaging) or the in-browser engine | Extension pages | 11 |
@@ -270,3 +270,41 @@ not yet verified or saveable (Phase 7).
 Not in this phase: editing a profile's confidence threshold or adding custom
 categories from the UI (`profiles.update` and `rules.add_category` exist);
 restoring AI responses (Phase 12).
+
+## Phase 7 verification log
+
+* Verification (`verify.run`, automatic after every copy): the copy is read
+  back in the isolated worker exactly like an original (OCR when the scan
+  used it), its stored bytes are searched (every Office part decompressed,
+  embedded Office files too, XML entities decoded, font family names
+  ignored), and every detector runs again. A protected value left behind (as
+  written, in any letter case for values that are not short words, written
+  differently, or only in the stored bytes) or content that cannot be read
+  fails the check; findings the original scan did not have need the user's
+  confirmation ("review"); Airlock's own replacements and values the user kept
+  are expected.
+* Export: "Save Protected Copy…" and "Save as Text…" go through the host,
+  which shows the native save dialog with the suggested name and the right
+  filter; the web view cannot name a path (`export.prepare` / `export.save`
+  are host-only). The engine refuses the original file, Airlock's folders,
+  links, devices and other extensions, re-checks the copy's SHA-256, and
+  writes atomically. "Copy Text for AI" puts the checked copy's readable text
+  (tables as tab-separated rows) on the clipboard.
+* A real defect found while building it: words such as "Microsoft" recognised
+  as organisations also appear in Office theme font names
+  (`typeface="Microsoft Himalaya"`); the stored-bytes search now ignores font
+  family attributes, so typography does not fail a check while real leaks
+  still do.
+* Engine 430 tests (+1 IPv6, 1 Windows-only DPAPI and 1 non-root case
+  skipped here), host 16 tests, UI 34 tests; ruff, ruff format, mypy
+  `--strict` (also for `win32`), clippy clean.
+* Real app (Linux, Xvfb): the DOCX with the token set to Redact produced a
+  copy that was checked automatically ("none of the 9 protected values are in
+  it"); the native save dialog opened with "Vendor Onboarding (Airlock
+  protected).docx" and a DOCX filter and saved it; "Copy Text for AI" put the
+  placeholder text on the clipboard (pasted back to confirm); cancelling the
+  text dialog saved nothing. An independent search of the exported file
+  found no protected value; the only original number left was the bank
+  account the user had marked "not sensitive" in Phase 6. The log held
+  `verify_completed`, `export_completed` and `export_text` with no path or
+  value; the work folder was empty after closing; originals unchanged.

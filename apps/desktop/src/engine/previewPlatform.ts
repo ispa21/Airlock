@@ -417,6 +417,41 @@ export const previewPlatform: Platform = {
     };
   },
 
+  async verify(artifactId: string) {
+    await delay(600);
+    return {
+      artifact_id: artifactId,
+      status: "passed" as const,
+      passed: true,
+      checked: { protected_values: 4, segments: 64, ocr_used: true },
+      remaining_count: 0,
+      new_count: 0,
+      remaining: [],
+      unreadable: [],
+      kept_count: 0,
+      replacement_count: 4,
+      duration_ms: 600,
+    };
+  },
+
+  async saveCopy() {
+    const error: EngineError = {
+      kind: "export_destination_invalid",
+      message: "The browser preview can't save files.",
+      next_step: "Run the desktop app to save protected copies.",
+      original_affected: false,
+    };
+    throw error;
+  },
+
+  async copyText() {
+    return "Q3 board report for [INTERNAL_PROJECT_1]. Contact [PERSON_1] at [EMAIL_1].\n";
+  },
+
+  async writeClipboard(text: string) {
+    await navigator.clipboard.writeText(text);
+  },
+
   async discardCopy() {},
 
   async cancel(tag: string) {

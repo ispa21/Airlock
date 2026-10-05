@@ -61,8 +61,10 @@ The host restarts a crashed engine on the next request, at most 3 restarts per
 | `vault.restore` | yes | `{artifact_id, text}` | `{text, restored}`: the only method that returns original values, on this explicit request; unknown placeholders are left unchanged |
 | `vault.forget` | yes | `{artifact_id}` | `{ok, deleted}` |
 | `vault.status` | yes | `{}` | `{protection: dpapi \| file \| memory, records}` |
-| `verify.run` | Phase 7 | `{artifact_id}` | `{passed, original_count, remaining_count, remaining[]}` |
-| `export.save` / `export.text` | Phase 7 | `{artifact_id, destination}` / `{artifact_id}` | `{ok}` / `{text}` (sanitized only) |
+| `verify.run` | yes (cancellable) | `{artifact_id}` | `{artifact_id, status: passed \| review \| failed, passed, checked{protected_values, segments, ocr_used}, remaining_count, new_count, remaining[{reason: protected \| new, entity_type, entity_label, preview, location{kind, label}, hidden}], unreadable[{label, count}], kept_count, replacement_count, duration_ms}`. Reads the copy back in an isolated worker (OCR if the scan used it), searches its stored bytes (every Office part decompressed) and runs every detector again. Stages: extraction stages, then `raw`, `prepare`, `detect` |
+| `export.text` | yes | `{artifact_id, acknowledge_review?}` | `{text, chars}`: the checked copy's readable text (body, headers and footers, notes, pictures' text; tables as tab-separated rows) |
+| `export.prepare` | no (host only) | `{artifact_id, as_text?, acknowledge_review?}` | `{file_name, extension, filter_label}` for the native save dialog |
+| `export.save` | no (host only) | `{artifact_id, destination, as_text?, acknowledge_review?}` | `{ok, file_name, size_bytes}`. Atomic write; refuses the original file, Airlock's own folders, links and other extensions |
 | `profiles.list` | yes | `{}` | `{profiles[], default_id, entity_types[], actions[], mask_styles[]}`; each profile lists `{action, source, style}` for every entity type |
 | `profiles.create` | yes | `{name, base_id}` | `{profile}` |
 | `profiles.update` | yes | `{id, name?, actions?: {entity_type: action \| null}, styles?: {entity_type: mask_style \| null}, min_confidence?, mask_style?}` | `{profile}` (built-ins are refused; `partial` is refused for credentials) |
@@ -100,6 +102,15 @@ high, critical), factors[{id, label, points, detail}]}`. `before` scores the
 document as it is; `after` scores what the protected copy would still share
 (findings kept, plus anything still blocked). See ARCHITECTURE.md, "Risk
 score".
+
+A copy can leave Airlock (`export.*`) only after `verify.run`: status
+`passed`, or `review` with `acknowledge_review: true`; `failed` always
+refuses with `verification_failed`. The bytes that leave must still have the
+SHA-256 that was checked (`copy_changed` otherwise). The UI saves through the
+host command `export_save(artifactId, asText, acknowledgeReview)`, which shows
+the native save dialog and calls `export.prepare` / `export.save` itself, so
+the web view never supplies a path. It returns `{saved: false}` when the user
+cancels.
 
 Rule text is returned only by `rules.*` (it is the user's own input for the
 rules screen). It is never logged and never echoed in error messages.

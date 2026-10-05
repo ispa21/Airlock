@@ -88,6 +88,21 @@ matches refused, a company rule taught from a language-model finding with the
 user's earlier choices carried over, per-type mask styles in custom profiles,
 and `scan.refresh` applying an edited (or deleted) profile.
 
+## Verification and export tests (Phase 7)
+
+`test_verify.py` covers the verifier (clean copy, exact and any-case leaks,
+short words on word edges, a number written differently, matches inside
+Airlock's own replacements, leaks only in stored bytes, kept values,
+new findings → review, unreadable content → failed), the raw search
+(decompressed parts, embedded packages, XML entities, font names ignored,
+UTF-16 text, safe part labels), the AI-safe text layout, destination rules
+and the atomic write. `test_api_verify.py` drives every format through
+scan → copy → verify → export (file and text) over RPC with canaries, then
+the gates: nothing leaves before a check, a simulated sanitizer bug fails the
+check and blocks every export, new findings need an acknowledgement, and the
+original file, wrong extensions, Airlock's folders and a changed copy are
+refused.
+
 ## Leak tests (Phase 5+) — implemented in `test_api_sanitize.py`
 
 Canary values are seeded into every part of each test document: body,
