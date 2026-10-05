@@ -5,6 +5,10 @@
 * MASK, ``placeholder``: ``[MASKED_1]``. Same, without revealing the type.
 * MASK, ``synthetic``: a realistic but reserved stand-in (``person1@example.invalid``,
   ``192.0.2.1``); types without a safe reserved form use typed placeholders.
+* MASK, ``partial``: part of the value stays recognisable — last four
+  characters of ids and numbers (``XXXX XXXX 4691``, as on a masked Aadhaar),
+  initials of names (``R. S.``), first letter and domain of e-mail addresses.
+  Never for credentials (part of a secret is still a leak). Not reversible.
 * REDACT: ``[REDACTED]``. No type, no numbering, nothing to link.
 * GENERALIZE: a coarser form (date of birth → year, e-mail → domain, IP →
   subnet, URL → host, amount → rounded).
@@ -65,6 +69,8 @@ class Replacer:
             action = Action.MASK  # no coarser form: fall back to a placeholder
         if action is not Action.MASK:
             raise ValueError(f"no replacement for action {action.value}")
+        if mask_style == "partial" and partial_allowed(entity_type):
+            return _check(partial(entity_type, value))
         key = (entity_type, value, mask_style)
         if key in self._issued:
             return self._issued[key]
@@ -108,6 +114,30 @@ class Replacer:
         if entity_type == "LOCATION":
             return self._next("syn:loc", lambda n: f"Sample City {n}")
         return None
+
+
+#: Entity types whose values are words (names) rather than codes.
+_WORD_TYPES = frozenset({"PERSON", "ORGANIZATION", "LOCATION", "PRODUCT", "EVENT"})
+
+
+def partial_allowed(entity_type: str) -> bool:
+    entity = BUILTIN_ENTITIES.get(entity_type)
+    return entity is None or entity.category.value != "CREDENTIALS"
+
+
+def partial(entity_type: str, value: str) -> str:
+    """Keep just enough to recognise the value; hide the rest with X."""
+    if entity_type == "EMAIL" and "@" in value:
+        local, _, domain = value.rpartition("@")
+        return f"{local[:1]}{'X' * max(3, len(local) - 1)}@{domain}"
+    words = value.split()
+    if entity_type in _WORD_TYPES or (
+        entity_type not in BUILTIN_ENTITIES and all(w.isalpha() for w in words)
+    ):
+        return " ".join(f"{w[0].upper()}." for w in words if w[:1].isalpha()) or "X"
+    alnum = [i for i, ch in enumerate(value) if ch.isalnum()]
+    keep = set(alnum[-4:]) if len(alnum) > 4 else set()
+    return "".join(ch if (i in keep or not ch.isalnum()) else "X" for i, ch in enumerate(value))
 
 
 def generalize(entity_type: str, value: str) -> str | None:

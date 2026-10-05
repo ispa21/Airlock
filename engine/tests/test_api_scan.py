@@ -119,7 +119,12 @@ def test_scan_finds_entities_everywhere_without_leaking(
     assert summary["detectors"]["ner"] == "used"
     assert summary["detectors"]["company_rules"] == 1
     assert result["extraction"]["segment_count"] > 0
-    assert result["risk"] is None
+    risk = result["risk"]
+    assert risk["before"]["level"] == "critical"
+    assert sum(f["points"] for f in risk["before"]["factors"]) >= risk["before"]["score"]
+    # The token is still set to Block, so it counts as exposed until resolved.
+    assert "credentials" in {f["id"] for f in risk["after"]["factors"]}
+    assert risk["after"]["score"] < risk["before"]["score"]
 
     # Nothing raw crosses IPC (the rule text came from the user, in request 1 only).
     serialized = json.dumps(result)

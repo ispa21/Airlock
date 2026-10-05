@@ -88,6 +88,16 @@ _MIGRATIONS: tuple[str, ...] = (
     ALTER TABLE privacy_profiles ADD COLUMN min_confidence REAL;
     ALTER TABLE privacy_profiles ADD COLUMN mask_style TEXT;
     """,
+    # v3 — Phase 6: a mask style per entity type (e.g. partial for Aadhaar),
+    # independent of the action, for custom profiles.
+    """
+    CREATE TABLE profile_styles (
+      profile_id  TEXT NOT NULL REFERENCES privacy_profiles(id) ON DELETE CASCADE,
+      entity_type TEXT NOT NULL,
+      mask_style  TEXT NOT NULL,
+      PRIMARY KEY (profile_id, entity_type)
+    );
+    """,
 )
 
 SCHEMA_VERSION = len(_MIGRATIONS)

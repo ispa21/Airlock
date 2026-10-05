@@ -110,8 +110,11 @@ class PolicyEngine:
         items: Sequence[tuple[str, Detected]],
         profile: Profile,
         overrides: Mapping[str, Action] | None = None,
+        styles: Mapping[str, str] | None = None,
     ) -> PolicyDecision:
+        """``styles`` holds per-finding mask styles chosen by the user."""
         overrides = overrides or {}
+        styles = styles or {}
         decision = PolicyDecision(profile)
         findings: list[Finding] = []
         for finding_id, item in items:
@@ -132,7 +135,7 @@ class PolicyEngine:
                     action=action,
                     policy_reason=reason,
                     corroborating_detectors=item.corroborating,
-                    mask_style=profile.mask_style,
+                    mask_style=styles.get(finding_id, profile.style_for(d.entity_type)),
                     overridden=overridden,
                 )
             )

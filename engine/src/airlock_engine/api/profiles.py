@@ -48,7 +48,11 @@ def register(registry: MethodRegistry, storage: Storage) -> None:
             action, source = profile.resolve(
                 t["id"], Category(t["category"]), company_rule=t["company_rule"]
             )
-            table[t["id"]] = {"action": action.value, "source": source}
+            table[t["id"]] = {
+                "action": action.value,
+                "source": source,
+                "style": profile.style_for(t["id"]),
+            }
         return {
             "id": profile.id,
             "name": profile.name,
@@ -110,6 +114,12 @@ def register(registry: MethodRegistry, storage: Storage) -> None:
         mask_style = params.get("mask_style")
         if mask_style is not None and not isinstance(mask_style, str):
             raise InvalidParams("'mask_style' must be a string")
+        raw_styles = params.get("styles", {})
+        if not isinstance(raw_styles, dict) or not all(
+            v is None or isinstance(v, str) for v in raw_styles.values()
+        ):
+            raise InvalidParams("'styles' must be an object of entity type → style or null")
+        styles: dict[str, str | None] = {str(k): v for k, v in raw_styles.items()}
 
         def run() -> dict[str, Any]:
             store = storage.profiles
@@ -120,6 +130,7 @@ def register(registry: MethodRegistry, storage: Storage) -> None:
                 actions=actions,
                 min_confidence=float(min_confidence) if min_confidence is not None else None,
                 mask_style=mask_style,
+                styles=styles,
                 known_types={t["id"] for t in types},
             )
             safelog.log.info("profile_updated", entity_count=len(actions))

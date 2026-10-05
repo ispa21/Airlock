@@ -108,7 +108,7 @@ def test_version_1_database_is_migrated(tmp_path: Path) -> None:
     conn.commit()
     conn.close()
     storage = Storage(tmp_path)
-    assert storage.rules.db.schema_version() == SCHEMA_VERSION == 2
+    assert storage.rules.db.schema_version() == SCHEMA_VERSION == 3
     assert {p.id for p in storage.profiles.all()} == set(BUILTIN_PROFILES)
     created = storage.profiles.create("After upgrade", "company-default")
     assert storage.profiles.get(created.id).base_id == "company-default"

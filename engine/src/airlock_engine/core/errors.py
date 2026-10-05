@@ -281,3 +281,15 @@ def vault_unavailable() -> AirlockError:
         next_step="Restart Airlock. If it keeps happening, check that your user profile "
         "folder is writable.",
     )
+
+
+# --- teach Airlock (Phase 6) ------------------------------------------------
+
+
+def cannot_teach_credential() -> AirlockError:
+    return AirlockError(
+        kind="cannot_teach_credential",
+        message="Passwords, keys and tokens can't be marked as not sensitive or saved as "
+        "company rules, so they are never stored by Airlock.",
+        next_step="To share this one anyway, choose Keep for it in this scan.",
+    )

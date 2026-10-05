@@ -13,6 +13,7 @@ from typing import Any
 
 from airlock_engine.core.models import Action
 from airlock_engine.detectors.entities import BUILTIN_ENTITIES
+from airlock_engine.masking.replacements import partial_allowed
 from airlock_engine.policy.profiles import (
     BUILTIN_PROFILES,
     DEFAULT_PROFILE_ID,
@@ -66,6 +67,12 @@ class ProfileStore:
             "SELECT entity_type, action FROM policy_rules WHERE profile_id = ?", (row["id"],)
         ):
             actions[r["entity_type"]] = Action(r["action"])
+        styles = dict(base.styles)
+        for r in self.db.query(
+            "SELECT entity_type, mask_style FROM profile_styles WHERE profile_id = ?",
+            (row["id"],),
+        ):
+            styles[r["entity_type"]] = r["mask_style"]
         return base.with_changes(
             id=row["id"],
             name=row["name"],
@@ -73,6 +80,7 @@ class ProfileStore:
             builtin=False,
             base_id=base.id,
             actions=actions,
+            styles=styles,
             min_confidence=row["min_confidence"]
             if row["min_confidence"] is not None
             else base.min_confidence,
@@ -131,6 +139,10 @@ class ProfileStore:
                     if base.actions.get(entity_type) is not action
                 ],
             )
+            conn.executemany(
+                "INSERT INTO profile_styles (profile_id, entity_type, mask_style) VALUES (?, ?, ?)",
+                [(profile_id, t, style) for t, style in source.styles.items()],
+            )
         return self.get(profile_id)
 
     def update(
@@ -141,6 +153,7 @@ class ProfileStore:
         actions: dict[str, Action | None] | None = None,
         min_confidence: float | None = None,
         mask_style: str | None = None,
+        styles: dict[str, str | None] | None = None,
         known_types: set[str] | None = None,
     ) -> Profile:
         current = self.get(profile_id)
@@ -156,6 +169,13 @@ class ProfileStore:
             raise ProfileError("The confidence threshold must be between 0 and 100%.")
         if mask_style is not None and mask_style not in MASK_STYLES:
             raise ProfileError("Choose a valid placeholder style.")
+        for entity_type, style in (styles or {}).items():
+            if entity_type not in known:
+                raise ProfileError("One of the data types in this change is not known.")
+            if style is not None and style not in MASK_STYLES:
+                raise ProfileError("Choose a valid placeholder style.")
+            if style == "partial" and not partial_allowed(entity_type):
+                raise ProfileError("Passwords, keys and tokens can't be partly masked.")
         base = BUILTIN_PROFILES[current.base_id or DEFAULT_PROFILE_ID]
         with self.db.transaction() as conn:
             if name is not None:
@@ -184,6 +204,17 @@ class ProfileStore:
                         "INSERT INTO policy_rules (profile_id, entity_type, action) "
                         "VALUES (?, ?, ?)",
                         (profile_id, entity_type, action.value),
+                    )
+            for entity_type, style in (styles or {}).items():
+                conn.execute(
+                    "DELETE FROM profile_styles WHERE profile_id = ? AND entity_type = ?",
+                    (profile_id, entity_type),
+                )
+                if style is not None:
+                    conn.execute(
+                        "INSERT INTO profile_styles (profile_id, entity_type, mask_style) "
+                        "VALUES (?, ?, ?)",
+                        (profile_id, entity_type, style),
                     )
             conn.execute(
                 "UPDATE privacy_profiles SET updated_at = ? WHERE id = ?", (now(), profile_id)

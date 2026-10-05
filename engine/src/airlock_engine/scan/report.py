@@ -11,12 +11,15 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from airlock_engine.core.models import Category, SegmentKind, Severity
+from airlock_engine.core.models import Category, Finding, SegmentKind, Severity
 from airlock_engine.core.sensitive import mask_preview
 from airlock_engine.detectors.entities import BUILTIN_ENTITIES, QualityClass
+from airlock_engine.detectors.explain import explain
 from airlock_engine.detectors.pipeline import DetectionOutcome
+from airlock_engine.masking.replacements import partial_allowed
 from airlock_engine.policy.engine import is_high_risk
 from airlock_engine.policy.profiles import GENERALIZABLE
+from airlock_engine.risk.scorer import RiskScorer, residual
 from airlock_engine.scan import ScanSession
 
 #: Findings listed individually in one response; the summary always counts all.
@@ -117,6 +120,10 @@ def build_report(
     by_category: Counter[str] = Counter()
     by_severity: Counter[str] = Counter()
     hidden = 0
+    hidden_ids: set[str] = set()
+    category_values: dict[str, set[int]] = {}
+    category_severity: dict[str, int] = {}
+    category_actions: dict[str, Counter[str]] = {}
     max_severity = 0
     ordered = decision.findings
     for f in ordered:
@@ -127,8 +134,16 @@ def build_report(
         segment = segments[d.segment_id]
         is_hidden = segment.kind not in _VISIBLE_KINDS
         hidden += is_hidden
+        if is_hidden:
+            hidden_ids.add(f.finding_id)
         by_entity[d.entity_type] += 1
         by_category[info.category] += 1
+        category_values.setdefault(info.category, set()).add(session.value_group[f.finding_id])
+        category_severity[info.category] = max(
+            category_severity.get(info.category, 0), int(d.severity)
+        )
+        effective_action = (f.effective_action or f.action).value
+        category_actions.setdefault(info.category, Counter())[effective_action] += 1
         by_severity[SEVERITY_LABELS[d.severity]] += 1
         max_severity = max(max_severity, int(d.severity))
         if len(findings) < MAX_LISTED_FINDINGS:
@@ -155,6 +170,9 @@ def build_report(
                     "covered_by": f.covered_by,
                     "generalizable": d.entity_type in GENERALIZABLE,
                     "high_risk": is_high_risk(d.severity, Category(info.category)),
+                    "mask_style": f.mask_style,
+                    "partial_available": partial_allowed(d.entity_type),
+                    "explanation": explain(d.detector, info.label, f.corroborating_detectors),
                 }
             )
 
@@ -165,7 +183,16 @@ def build_report(
         "hidden": hidden,
         "max_severity": SEVERITY_LABELS[Severity(max_severity)] if max_severity else None,
         "by_severity": {label: by_severity[label] for label in SEVERITY_LABELS.values()},
-        "by_category": [{"category": c, "count": n} for c, n in by_category.most_common()],
+        "by_category": [
+            {
+                "category": c,
+                "count": n,
+                "distinct": len(category_values[c]),
+                "max_severity": SEVERITY_LABELS[Severity(category_severity[c])],
+                "actions": dict(category_actions[c]),
+            }
+            for c, n in by_category.most_common()
+        ],
         "by_entity": [
             {
                 "entity_type": t,
@@ -182,7 +209,30 @@ def build_report(
         },
         "allowed": outcome.allowed,
     }
-    return {"findings": findings, "summary": summary, "policy": policy_summary(session)}
+    return {
+        "findings": findings,
+        "summary": summary,
+        "policy": policy_summary(session),
+        "risk": risk_summary(session, hidden_ids),
+    }
+
+
+def risk_summary(session: ScanSession, hidden_ids: set[str]) -> dict[str, Any]:
+    """Risk of the document as it is, and of what the protected copy would keep."""
+    decision = session.decision or session.redecide()
+    scorer = RiskScorer()
+
+    def key(f: Finding) -> object:
+        return session.value_group[f.finding_id]
+
+    before = scorer.score(
+        decision.findings,
+        value_key=key,
+        hidden_ids=hidden_ids,
+        unreadable=len(session.document.unextracted),
+    )
+    after = scorer.score(residual(decision.findings), value_key=key, hidden_ids=hidden_ids)
+    return {"before": before.to_json(), "after": after.to_json()}
 
 
 def policy_summary(session: ScanSession) -> dict[str, Any]:

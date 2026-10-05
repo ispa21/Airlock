@@ -55,6 +55,8 @@ class ScanSession:
     value_group: dict[str, int] = field(default_factory=dict)
     #: The user's per-finding decisions for this scan (never persisted).
     overrides: dict[str, Action] = field(default_factory=dict)
+    #: Mask styles chosen per finding ("partial", ...), alongside MASK overrides.
+    styles: dict[str, str] = field(default_factory=dict)
     decision: PolicyDecision | None = None
     #: Report context: entity labels for custom categories, detector status.
     meta: dict[str, Any] = field(default_factory=dict)
@@ -66,8 +68,32 @@ class ScanSession:
             self.items, self.value_group = order_findings(self.outcome)
         self.redecide()
 
+    def replace_outcome(self, outcome: DetectionOutcome, policy: PolicyEngine) -> None:
+        """Swap in fresh detections (after the user taught Airlock something).
+
+        Finding ids change, so the user's decisions are carried over by value:
+        a finding with the same type and value keeps its action and style.
+        """
+        by_value = {
+            fid: (item.detection.entity_type, item.detection.matched_value.reveal())
+            for fid, item in self.items
+        }
+        actions = {by_value[f]: a for f, a in self.overrides.items() if f in by_value}
+        styles = {by_value[f]: s for f, s in self.styles.items() if f in by_value}
+        self.outcome = outcome
+        self.policy = policy
+        self.items, self.value_group = order_findings(outcome)
+        self.overrides, self.styles = {}, {}
+        for fid, item in self.items:
+            key = (item.detection.entity_type, item.detection.matched_value.reveal())
+            if key in actions:
+                self.overrides[fid] = actions[key]
+            if key in styles:
+                self.styles[fid] = styles[key]
+        self.redecide()
+
     def redecide(self) -> PolicyDecision:
-        self.decision = self.policy.decide(self.items, self.profile, self.overrides)
+        self.decision = self.policy.decide(self.items, self.profile, self.overrides, self.styles)
         return self.decision
 
     def __repr__(self) -> str:

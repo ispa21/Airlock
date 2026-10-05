@@ -31,7 +31,7 @@ ACTION_ORDER: dict[Action, int] = {
     Action.BLOCK: 4,
 }
 
-MASK_STYLES = ("typed_placeholder", "placeholder", "synthetic")
+MASK_STYLES = ("typed_placeholder", "placeholder", "synthetic", "partial")
 
 #: Entity types with a meaningful coarser form (DOB → year, e-mail → domain,
 #: IP → subnet, ...). GENERALIZE on anything else falls back to MASK.
@@ -64,6 +64,11 @@ class Profile:
     default_action: Action = Action.MASK
     min_confidence: float = 0.6
     mask_style: str = "typed_placeholder"
+    #: Entity type → mask style, when it differs from ``mask_style``.
+    styles: Mapping[str, str] = field(default_factory=dict)
+
+    def style_for(self, entity_type: str) -> str:
+        return self.styles.get(entity_type, self.mask_style)
 
     def resolve(
         self, entity_type: str, category: Category, *, company_rule: bool
@@ -90,6 +95,7 @@ class Profile:
             "default_action": self.default_action,
             "min_confidence": self.min_confidence,
             "mask_style": self.mask_style,
+            "styles": dict(self.styles),
         }
         data.update(changes)
         return Profile(**data)  # type: ignore[arg-type]

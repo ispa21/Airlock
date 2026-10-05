@@ -212,7 +212,11 @@ def test_custom_profile_and_rule_action_over_rpc(
         req(4, "profiles.update", id=profile["id"], actions={"PAN": "GENERALIZE"}),
     )
     updated = result_of(rs, 2)["profile"]
-    assert updated["actions"]["EMAIL"] == {"action": "ALLOW", "source": "entity"}
+    assert updated["actions"]["EMAIL"] == {
+        "action": "ALLOW",
+        "source": "entity",
+        "style": "typed_placeholder",
+    }
     assert error_of(rs, 3)["data"]["kind"] == "invalid_profile"
     assert error_of(rs, 4)["data"]["kind"] == "invalid_profile"
 

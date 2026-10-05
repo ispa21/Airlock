@@ -19,7 +19,11 @@ const ALLOWED_METHODS: &[&str] = &[
     "scan.start",
     "scan.set_profile",
     "scan.override",
+    "scan.refresh",
+    "scan.teach",
     "scan.discard",
+    "allowlist.status",
+    "allowlist.clear",
     "profiles.list",
     "profiles.create",
     "profiles.update",
@@ -47,6 +51,8 @@ fn timeout_for(method: &str) -> Duration {
         "scan.start" => Duration::from_secs(1_500),
         // The sanitize worker has the same 15-minute limit as extraction.
         "sanitize.run" => Duration::from_secs(1_000),
+        // Detection again on the text already read (no extraction).
+        "scan.refresh" | "scan.teach" => Duration::from_secs(600),
         _ => Duration::from_secs(10),
     }
 }
@@ -124,6 +130,9 @@ mod tests {
         assert!(ALLOWED_METHODS.contains(&"scan.override"));
         assert!(ALLOWED_METHODS.contains(&"profiles.list"));
         assert!(ALLOWED_METHODS.contains(&"sanitize.run"));
+        assert!(ALLOWED_METHODS.contains(&"scan.teach"));
+        assert!(ALLOWED_METHODS.contains(&"allowlist.clear"));
+        assert!(timeout_for("scan.refresh") > timeout_for("system.health"));
         assert!(timeout_for("sanitize.run") > timeout_for("system.health"));
         assert!(timeout_for("scan.start") > timeout_for("document.extract"));
     }
