@@ -54,13 +54,15 @@ const RESULT: ScanResult = {
       id: "f1", entity_type: "PAN", entity_label: "PAN (income-tax id)", category: "GOVERNMENT",
       severity: "high", confidence: 0.97, detector: "regex.pan", corroborated_by: [], rule_id: null,
       preview: "AB••••••4F", location: { kind: "comment", label: "Comments · paragraph 1" }, hidden: true,
-      value_group: 1,
+      value_group: 1, action: "MASK", effective_action: "MASK", reason: "Company Default masks government ids.",
+      overridden: false, covered_by: null, generalizable: false, high_risk: false,
     },
     {
       id: "f2", entity_type: "EMAIL", entity_label: "E-mail address", category: "PERSONAL",
       severity: "medium", confidence: 0.98, detector: "regex.email", corroborated_by: [], rule_id: null,
       preview: "r••••@example.invalid", location: { kind: "body", label: "Body · paragraph 2" }, hidden: false,
-      value_group: 2,
+      value_group: 2, action: "MASK", effective_action: "MASK", reason: "Company Default masks personal data.",
+      overridden: false, covered_by: null, generalizable: true, high_risk: false,
     },
   ],
   summary: {
@@ -74,6 +76,14 @@ const RESULT: ScanResult = {
     detectors: { ner: "used", company_rules: 0, rule_timeouts: 0 },
     allowed: 0,
   },
+  policy: {
+    profile: { id: "company-default", name: "Company Default", builtin: true },
+    actions: { ALLOW: 0, MASK: 2, REDACT: 0, GENERALIZE: 0, BLOCK: 0 },
+    regions: 2,
+    blocked: 0,
+    overridden: 0,
+    ready: true,
+  },
 };
 
 function fakePlatform(overrides: Partial<Platform> = {}) {
@@ -83,11 +93,20 @@ function fakePlatform(overrides: Partial<Platform> = {}) {
     engineInfo: vi.fn().mockResolvedValue(INFO),
     inspect: vi.fn().mockResolvedValue(DOCX),
     pickFile: vi.fn().mockResolvedValue("C:\\Docs\\Contract.docx"),
-    scan: vi.fn(async (_path: string, _tag: string, onProgress: (p: Progress) => void) => {
+    scan: vi.fn(async (_path: string, _profile: string, _tag: string, onProgress: (p: Progress) => void) => {
       onProgress({ stage: "parts", done: 1, total: 4 });
       return RESULT;
     }),
     discard: vi.fn().mockResolvedValue(undefined),
+    listProfiles: vi.fn().mockResolvedValue({
+      default_id: "company-default",
+      profiles: [
+        { id: "company-default", name: "Company Default" },
+        { id: "strict", name: "Strict" },
+      ],
+    }),
+    setProfile: vi.fn(),
+    override: vi.fn(),
     cancel: vi.fn().mockResolvedValue(undefined),
     onFileDrop: vi.fn(async (handlers: DropHandlers) => {
       drop = handlers;
@@ -154,7 +173,12 @@ describe("App", () => {
     await userEvent.click(screen.getByRole("button", { name: "Scan Document" }));
 
     expect(await screen.findByRole("heading", { name: "What Airlock read" })).toBeInTheDocument();
-    expect(platform.scan).toHaveBeenCalledWith("C:\\Docs\\Contract.docx", expect.stringMatching(/^scan-/), expect.any(Function));
+    expect(platform.scan).toHaveBeenCalledWith(
+      "C:\\Docs\\Contract.docx",
+      "company-default",
+      expect.stringMatching(/^scan-/),
+      expect.any(Function),
+    );
     expect(screen.getByText("1,520 words · 1 image read with OCR · 1 embedded file")).toBeInTheDocument();
     expect(screen.getByText("Main text")).toBeInTheDocument();
     expect(screen.getByText("1,480 words")).toBeInTheDocument();
@@ -213,12 +237,94 @@ describe("App", () => {
     expect(screen.getByText(/language model could not be loaded/)).toBeInTheDocument();
   });
 
+  it("loads profiles from the engine and scans with the chosen one", async () => {
+    const { platform } = fakePlatform();
+    renderApp(platform);
+    await userEvent.click(screen.getByRole("button", { name: /drop files here/i }));
+    await screen.findByText("Verified");
+    await waitFor(() => expect(screen.getByRole("option", { name: "Strict" })).toBeInTheDocument());
+    await userEvent.selectOptions(screen.getByLabelText("Privacy Profile"), "strict");
+    await userEvent.click(screen.getByRole("button", { name: "Scan Document" }));
+    await screen.findByRole("heading", { name: "What Airlock found" });
+    expect(platform.scan).toHaveBeenCalledWith(expect.any(String), "strict", expect.any(String), expect.any(Function));
+  });
+
+  it("changes an action for every occurrence of a value and re-applies a profile", async () => {
+    const changed: ScanResult["findings"] = RESULT.findings.map((f) =>
+      f.id === "f2" ? { ...f, action: "REDACT", effective_action: "REDACT", overridden: true, reason: "Changed by you." } : f,
+    );
+    const update = { scan_id: "scan_test", findings: changed, summary: RESULT.summary, policy: RESULT.policy };
+    const { platform } = fakePlatform({
+      override: vi.fn().mockResolvedValue(update),
+      setProfile: vi.fn().mockResolvedValue(update),
+    });
+    renderApp(platform);
+    await userEvent.click(screen.getByRole("button", { name: /drop files here/i }));
+    await screen.findByText("Verified");
+    await userEvent.click(screen.getByRole("button", { name: "Scan Document" }));
+    await screen.findByRole("heading", { name: "What Airlock found" });
+
+    await userEvent.selectOptions(screen.getByLabelText("Action for E-mail address f2"), "REDACT");
+    expect(platform.override).toHaveBeenCalledWith("scan_test", [{ value_group: 2, action: "REDACT" }], false);
+    expect(await screen.findByText("Changed by you.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Action for E-mail address f2")).toHaveValue("REDACT");
+
+    await userEvent.selectOptions(screen.getByLabelText("Privacy Profile"), "strict");
+    expect(platform.setProfile).toHaveBeenCalledWith("scan_test", "strict");
+  });
+
+  it("asks before keeping a critical finding and shows blocked items", async () => {
+    const token = {
+      ...RESULT.findings[0]!, id: "f1", entity_type: "API_KEY", entity_label: "API key or token",
+      category: "CREDENTIALS" as const, severity: "critical" as const, action: "BLOCK" as const,
+      effective_action: "BLOCK" as const, high_risk: true, value_group: 7,
+    };
+    const blocked: ScanResult = {
+      ...RESULT,
+      findings: [token],
+      policy: { ...RESULT.policy, blocked: 1, ready: false, actions: { ...RESULT.policy.actions, BLOCK: 1 } },
+    };
+    const { platform } = fakePlatform({
+      scan: vi.fn().mockResolvedValue(blocked),
+      override: vi.fn().mockResolvedValue({ ...blocked, scan_id: "scan_test" }),
+    });
+    renderApp(platform);
+    await userEvent.click(screen.getByRole("button", { name: /drop files here/i }));
+    await screen.findByText("Verified");
+    await userEvent.click(screen.getByRole("button", { name: "Scan Document" }));
+    expect(await screen.findByText("1 item is blocked")).toBeInTheDocument();
+
+    await userEvent.selectOptions(screen.getByLabelText("Action for API key or token f1"), "ALLOW");
+    expect(platform.override).not.toHaveBeenCalled();
+    const confirm = screen.getByRole("alertdialog", { name: "Confirm keeping this finding" });
+    expect(confirm).toHaveTextContent("Keep this API key or token? It would be shared with the AI as it is.");
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(platform.override).not.toHaveBeenCalled();
+
+    await userEvent.selectOptions(screen.getByLabelText("Action for API key or token f1"), "ALLOW");
+    await userEvent.click(screen.getByRole("button", { name: "Keep anyway" }));
+    expect(platform.override).toHaveBeenCalledWith("scan_test", [{ value_group: 7, action: "ALLOW" }], true);
+  });
+
+  it("shows policy errors without losing the results", async () => {
+    const failure: EngineError = { kind: "scan_not_found", message: "The results of this scan are no longer available." };
+    const { platform } = fakePlatform({ override: vi.fn().mockRejectedValue(failure) });
+    renderApp(platform);
+    await userEvent.click(screen.getByRole("button", { name: /drop files here/i }));
+    await screen.findByText("Verified");
+    await userEvent.click(screen.getByRole("button", { name: "Scan Document" }));
+    await screen.findByRole("heading", { name: "What Airlock found" });
+    await userEvent.selectOptions(screen.getByLabelText("Action for E-mail address f2"), "REDACT");
+    expect(await screen.findByText("The results of this scan are no longer available.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "What Airlock found" })).toBeInTheDocument();
+  });
+
   it("shows progress and can cancel a running scan", async () => {
     let reject: (reason: unknown) => void = () => undefined;
     let report: (p: Progress) => void = () => undefined;
     const { platform } = fakePlatform({
       scan: vi.fn(
-        (_path: string, _tag: string, onProgress: (p: Progress) => void) =>
+        (_path: string, _profile: string, _tag: string, onProgress: (p: Progress) => void) =>
           new Promise<ScanResult>((_resolve, rej) => {
             reject = rej;
             report = onProgress;

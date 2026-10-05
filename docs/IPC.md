@@ -48,11 +48,18 @@ The host restarts a crashed engine on the next request, at most 3 restarts per
 | `system.shutdown` | no (host only) | `{}` | `{ok: true}`, then the engine stops reading |
 | `document.inspect` | yes | `{path}` | `{file_name, extension, size_bytes, format, format_label, family, support, scannable}` |
 | `document.extract` | yes (cancellable) | `{path, ocr?: bool}` | Content-free summary: `{format, format_label, segment_count, char_count, word_count, parts[{kind, segments, chars, words}], counts{pages, slides, sheets, rows, lines, images_ocr, embedded}, ocr_used, unextracted[{kind, label, count}], unextracted_total, duration_ms}`. Emits `$/progress` with stages `pages`, `slides`, `sheets`, `rows`, `parts`, `ocr`. |
-| `scan.start` | yes (cancellable) | `{path, ocr?: bool, ner?: bool}` | `{scan_id, extraction, findings[], summary, detection_ms, risk: null}` with `$/progress` stages from extraction, then `prepare` (model load) and `detect` |
+| `scan.start` | yes (cancellable) | `{path, profile_id?, ocr?: bool, ner?: bool}` | `{scan_id, extraction, findings[], summary, policy, detection_ms, risk: null}` with `$/progress` stages from extraction, then `prepare` (model load) and `detect` |
+| `scan.set_profile` | yes | `{scan_id, profile_id}` | `{scan_id, findings[], summary, policy}`; the user's overrides are kept |
+| `scan.override` | yes | `{scan_id, overrides: [{finding_id \| value_group, action \| null}], acknowledge_risk?}` | `{scan_id, findings[], summary, policy}`; all-or-nothing |
 | `scan.discard` | yes | `{scan_id}` | `{ok, discarded}` |
 | `sanitize.run` | Phase 5 | `{scan_id, decisions[]}` | `{artifact_id}` |
 | `verify.run` | Phase 7 | `{artifact_id}` | `{passed, original_count, remaining_count, remaining[]}` |
 | `export.save` / `export.text` | Phase 7 | `{artifact_id, destination}` / `{artifact_id}` | `{ok}` / `{text}` (sanitized only) |
+| `profiles.list` | yes | `{}` | `{profiles[], default_id, entity_types[], actions[], mask_styles[]}`; each profile lists the action and its source for every entity type |
+| `profiles.create` | yes | `{name, base_id}` | `{profile}` |
+| `profiles.update` | yes | `{id, name?, actions?: {entity_type: action \| null}, min_confidence?, mask_style?}` | `{profile}` (built-ins are refused) |
+| `profiles.delete` | yes | `{id}` | `{ok, default_id}` |
+| `profiles.set_default` | yes | `{id}` | `{ok, default_id}` |
 | `rules.list` | yes | `{}` | `{rules[], categories[], kinds[], actions[]}` |
 | `rules.create` | yes | `{kind, pattern, category_id, aliases?, action?, enabled?}` | `{rule}` |
 | `rules.update` | yes | `{id, ...any of kind/pattern/category_id/aliases/action/enabled}` | `{rule}` |
@@ -61,12 +68,18 @@ The host restarts a crashed engine on the next request, at most 3 restarts per
 
 A finding in `scan.start` is `{id, entity_type, entity_label, category,
 severity, confidence, detector, corroborated_by[], rule_id, preview,
-location: {kind, label}, hidden, value_group}`. `preview` is always masked;
+location: {kind, label}, hidden, value_group, action, effective_action, reason,
+overridden, covered_by, generalizable, high_risk}`. `action` is the decision
+for the finding itself; `effective_action` is what applies after overlapping
+findings merge (`covered_by` names the finding that decided the region).
+`policy` is `{profile, actions{ALLOW..BLOCK}, regions, blocked, overridden,
+ready}`. An override that keeps (`ALLOW`) a `high_risk` finding fails with
+`confirmation_required` unless `acknowledge_risk` is true. `preview` is always masked;
 `value_group` groups repeats of the same value within one scan without
 revealing it. `summary` holds totals by severity, category and entity type,
 the hidden count and detector status (`ner`: used, disabled, unavailable or
 partial). At most 2,000 findings are listed per response; the summary
-always counts all of them. Policy actions and risk arrive in Phases 4 and 6.
+always counts all of them. Risk scoring arrives in Phase 6.
 
 Rule text is returned only by `rules.*` (it is the user's own input for the
 rules screen). It is never logged and never echoed in error messages.

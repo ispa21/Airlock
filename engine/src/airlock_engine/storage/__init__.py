@@ -8,9 +8,13 @@ import threading
 from pathlib import Path
 
 from airlock_engine.storage.db import DB_FILE, Database, StorageError
+from airlock_engine.storage.profiles import ProfileError, ProfileNotFound, ProfileStore
 from airlock_engine.storage.rules import AllowList, RuleStore
 
-__all__ = ["AllowList", "Database", "RuleStore", "Storage", "StorageError", "default_data_dir"]
+__all__ = [
+    "AllowList", "Database", "ProfileError", "ProfileNotFound", "ProfileStore", "RuleStore",
+    "Storage", "StorageError", "default_data_dir",
+]
 
 APP_ID = "com.airlock.desktop"
 
@@ -35,6 +39,7 @@ class Storage:
         self._db: Database | None = None
         self._rules: RuleStore | None = None
         self._allow: AllowList | None = None
+        self._profiles: ProfileStore | None = None
 
     def _open(self) -> None:
         if self._db is None:
@@ -42,6 +47,7 @@ class Storage:
             self._db = Database(path)
             self._rules = RuleStore(self._db)
             self._allow = AllowList(self._rules)
+            self._profiles = ProfileStore(self._db)
 
     @property
     def rules(self) -> RuleStore:
@@ -56,6 +62,13 @@ class Storage:
             self._open()
             assert self._allow is not None
             return self._allow
+
+    @property
+    def profiles(self) -> ProfileStore:
+        with self._lock:
+            self._open()
+            assert self._profiles is not None
+            return self._profiles
 
     def close(self) -> None:
         with self._lock:

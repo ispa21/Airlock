@@ -10,7 +10,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from airlock_engine.core.models import Category, Severity
+from airlock_engine.core.models import Action, Category, Severity
 from airlock_engine.detectors.custom import CompanyRule, RuleError, normalize, validate_rule_terms
 from airlock_engine.storage.db import Database, now
 
@@ -209,6 +209,10 @@ class RuleStore:
             for r in self.all()
             if r.enabled
         ]
+
+    def rule_actions(self) -> dict[str, Action]:
+        """Actions set on individual enabled rules (overriding the profile)."""
+        return {r.id: Action(r.action) for r in self.all() if r.enabled and r.action}
 
     # --- settings ----------------------------------------------------------
 

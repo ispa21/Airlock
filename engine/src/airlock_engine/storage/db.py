@@ -20,6 +20,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from airlock_engine.detectors.entities import BUILTIN_ENTITIES, BUILTIN_RULE_CATEGORIES
+from airlock_engine.policy.profiles import BUILTIN_PROFILES
 
 DB_FILE = "airlock.db"
 
@@ -80,6 +81,12 @@ _MIGRATIONS: tuple[str, ...] = (
       signature    TEXT NOT NULL,
       verified_at  TEXT NOT NULL
     );
+    """,
+    # v2 — Phase 4: custom profiles copy a built-in profile and override it.
+    """
+    ALTER TABLE privacy_profiles ADD COLUMN base_id TEXT;
+    ALTER TABLE privacy_profiles ADD COLUMN min_confidence REAL;
+    ALTER TABLE privacy_profiles ADD COLUMN mask_style TEXT;
     """,
 )
 
@@ -179,11 +186,13 @@ class Database:
                     "severity = excluded.severity, is_builtin = 1",
                     (e.id, e.label, e.category.value, int(e.severity)),
                 )
-            conn.execute(
-                "INSERT OR IGNORE INTO privacy_profiles (id, name, is_builtin, created_at, "
-                "updated_at) VALUES ('company-default', 'Company Default', 1, ?, ?)",
-                (stamp, stamp),
-            )
+            for profile in BUILTIN_PROFILES.values():
+                conn.execute(
+                    "INSERT INTO privacy_profiles (id, name, is_builtin, created_at, updated_at) "
+                    "VALUES (?, ?, 1, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, "
+                    "is_builtin = 1",
+                    (profile.id, profile.name, stamp, stamp),
+                )
 
 
 def _statements(script: str) -> list[str]:

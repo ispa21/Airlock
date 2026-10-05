@@ -135,6 +135,58 @@ export interface Finding {
   location: { kind: SegmentKind; label: string };
   hidden: boolean;
   value_group: number;
+  /** What the profile (or the user) decided for this finding. */
+  action: PolicyAction;
+  /** What actually applies once overlapping findings are merged. */
+  effective_action: PolicyAction;
+  reason: string;
+  overridden: boolean;
+  covered_by: string | null;
+  generalizable: boolean;
+  /** Keeping it (ALLOW) needs an explicit confirmation. */
+  high_risk: boolean;
+}
+
+export type PolicyAction = "ALLOW" | "MASK" | "REDACT" | "GENERALIZE" | "BLOCK";
+
+export interface PolicySummary {
+  profile: { id: string; name: string; builtin: boolean };
+  actions: Record<PolicyAction, number>;
+  regions: number;
+  blocked: number;
+  overridden: number;
+  ready: boolean;
+}
+
+export interface Profile {
+  id: string;
+  name: string;
+  description: string;
+  builtin: boolean;
+  base_id: string | null;
+  default: boolean;
+  min_confidence: number;
+  mask_style: string;
+  actions: Record<string, { action: PolicyAction; source: string }>;
+}
+
+export interface ProfileList {
+  profiles: Profile[];
+  default_id: string;
+}
+
+/** Result of `scan.set_profile` and `scan.override`. */
+export interface PolicyUpdate {
+  scan_id: string;
+  findings: Finding[];
+  summary: ScanSummary;
+  policy: PolicySummary;
+}
+
+export interface Override {
+  finding_id?: string;
+  value_group?: number;
+  action: PolicyAction | null;
 }
 
 export interface ScanSummary {
@@ -156,6 +208,7 @@ export interface ScanResult {
   extraction: ExtractSummary;
   findings: Finding[];
   summary: ScanSummary;
+  policy: PolicySummary;
   detection_ms: number;
   risk: null;
 }

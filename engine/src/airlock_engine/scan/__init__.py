@@ -13,12 +13,34 @@ import secrets
 import threading
 import time
 from dataclasses import dataclass, field
+from typing import Any
 
-from airlock_engine.core.models import ExtractedDocument
-from airlock_engine.detectors.pipeline import DetectionOutcome
+from airlock_engine.core.models import Action, ExtractedDocument
+from airlock_engine.detectors.pipeline import Detected, DetectionOutcome
+from airlock_engine.policy.engine import PolicyDecision, PolicyEngine
+from airlock_engine.policy.profiles import Profile
 
 SESSION_TTL_S = 30 * 60
 MAX_SESSIONS = 4
+
+
+def order_findings(outcome: DetectionOutcome) -> tuple[list[tuple[str, Detected]], dict[str, int]]:
+    """Stable finding ids (most severe first) and value groups: findings with
+    the same entity type and value share a group, so a decision can apply to
+    every occurrence without the UI ever seeing the value."""
+    ordered = sorted(
+        outcome.detected,
+        key=lambda d: (-int(d.detection.severity), d.detection.segment_id, d.detection.start),
+    )
+    items = [(f"f{n}", item) for n, item in enumerate(ordered, start=1)]
+    groups: dict[tuple[str, str], int] = {}
+    value_group = {
+        fid: groups.setdefault(
+            (item.detection.entity_type, item.detection.matched_value.reveal()), len(groups) + 1
+        )
+        for fid, item in items
+    }
+    return items, value_group
 
 
 @dataclass
@@ -27,7 +49,26 @@ class ScanSession:
     document: ExtractedDocument
     outcome: DetectionOutcome
     format_id: str
+    policy: PolicyEngine
+    profile: Profile
+    items: list[tuple[str, Detected]] = field(default_factory=list)
+    value_group: dict[str, int] = field(default_factory=dict)
+    #: The user's per-finding decisions for this scan (never persisted).
+    overrides: dict[str, Action] = field(default_factory=dict)
+    decision: PolicyDecision | None = None
+    #: Report context: entity labels for custom categories, detector status.
+    meta: dict[str, Any] = field(default_factory=dict)
     created: float = field(default_factory=time.monotonic)
+    lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def __post_init__(self) -> None:
+        if not self.items:
+            self.items, self.value_group = order_findings(self.outcome)
+        self.redecide()
+
+    def redecide(self) -> PolicyDecision:
+        self.decision = self.policy.decide(self.items, self.profile, self.overrides)
+        return self.decision
 
     def __repr__(self) -> str:
         return f"ScanSession(id={self.scan_id}, findings={len(self.outcome.detected)})"
@@ -45,9 +86,17 @@ class SessionStore:
         for scan_id in [k for k, s in self._sessions.items() if s.created < cutoff]:
             del self._sessions[scan_id]
 
-    def add(self, document: ExtractedDocument, outcome: DetectionOutcome, format_id: str) -> \
-            ScanSession:
-        session = ScanSession(f"scan_{secrets.token_hex(8)}", document, outcome, format_id)
+    def add(
+        self,
+        document: ExtractedDocument,
+        outcome: DetectionOutcome,
+        format_id: str,
+        policy: PolicyEngine,
+        profile: Profile,
+    ) -> ScanSession:
+        session = ScanSession(
+            f"scan_{secrets.token_hex(8)}", document, outcome, format_id, policy, profile
+        )
         with self._lock:
             self._purge()
             while len(self._sessions) >= self._max:

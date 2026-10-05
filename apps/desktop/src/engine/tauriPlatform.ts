@@ -8,6 +8,9 @@ import {
   toEngineError,
   type EngineInfo,
   type InspectResult,
+  type Override,
+  type PolicyUpdate,
+  type ProfileList,
   type Progress,
   type ScanResult,
 } from "./types";
@@ -48,7 +51,7 @@ export const tauriPlatform: Platform = {
     return call<InspectResult>("document.inspect", { path });
   },
 
-  async scan(path: string, tag: string, onProgress: (progress: Progress) => void) {
+  async scan(path: string, profileId: string, tag: string, onProgress: (progress: Progress) => void) {
     const unlisten = await listen<ProgressNotification>("engine://notification", (event) => {
       const params = event.payload.params;
       if (event.payload.method === "$/progress" && params?.tag === tag) {
@@ -56,10 +59,26 @@ export const tauriPlatform: Platform = {
       }
     });
     try {
-      return await call<ScanResult>("scan.start", { path }, tag);
+      return await call<ScanResult>("scan.start", { path, profile_id: profileId }, tag);
     } finally {
       unlisten();
     }
+  },
+
+  listProfiles() {
+    return call<ProfileList>("profiles.list");
+  },
+
+  setProfile(scanId: string, profileId: string) {
+    return call<PolicyUpdate>("scan.set_profile", { scan_id: scanId, profile_id: profileId });
+  },
+
+  override(scanId: string, overrides: Override[], acknowledgeRisk = false) {
+    return call<PolicyUpdate>("scan.override", {
+      scan_id: scanId,
+      overrides,
+      acknowledge_risk: acknowledgeRisk,
+    });
   },
 
   async discard(scanId: string) {

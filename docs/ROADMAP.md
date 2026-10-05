@@ -9,8 +9,8 @@ done when its exit criteria pass on a real run, not when it compiles.
 | 1 | Desktop shell + Python engine + IPC | Tauri app spawns the engine, handshake with version check, allowlisted calls, structured errors, crash restart, graceful shutdown, no orphans, network guard, content-free logs, main screen UI, file drop/browse with validation | ✅ Done |
 | 2 | Document extraction | Adapters for PDF, DOCX, XLSX, CSV, TXT, PPTX, then images (OCR), config files and code. Hidden parts extracted. Worker-process isolation. Malformed-file and fuzz suites | ✅ Done |
 | 3 | Detection | Regex detectors with checksums (Email, Phone, PAN, Aadhaar, GSTIN, bank account, IFSC, card, IP, URL); secret detectors; spaCy NER provider; company rules (exact, case-insensitive, normalized, alias, regex); SQLite storage; quality gates | ✅ Done |
-| 4 | Policy (next) | Profiles, entity → action mapping, defaults (credentials → BLOCK), overlap resolution, user overrides | |
-| 5 | Masking | Redaction, placeholder, typed placeholder, synthetic replacement, generalisation, reversible encrypted vault (DPAPI + AES-GCM), adapter `sanitize` for each format | |
+| 4 | Policy | Profiles, entity → action mapping, defaults (credentials → BLOCK), overlap resolution, user overrides | ✅ Done |
+| 5 | Masking (next) | Redaction, placeholder, typed placeholder, synthetic replacement, generalisation, reversible encrypted vault (DPAPI + AES-GCM), adapter `sanitize` for each format | |
 | 6 | Privacy report | Category summary, deterministic explainable risk, per-finding detector/confidence/action, partial masking, "teach Airlock" flow | |
 | 7 | Verification and export | Re-extract the produced artifact, rescan, residual-value check, raw OOXML sweep, block on failure, safe export, AI-safe copy | |
 | 8 | Windows packaging | PyInstaller onedir engine, NSIS installer, WebView2 strategy, code signing, firewall rule option, tauri-driver E2E on Windows, clean-VM DoD run | |
@@ -120,3 +120,38 @@ Known limits carried forward: NER is English-only and weaker on Indian names
 (company rules are the guarantee); PAN has no public checksum, so it is
 validated structurally; bank account numbers and dates of birth need a
 context keyword or column header.
+
+## Phase 4 verification log
+
+* Profiles: three built-ins (Company Default, Strict, Secrets & IDs only)
+  defined in code, and custom profiles stored in SQLite as a copy of a
+  built-in plus their own entity → action choices (schema v2 migration,
+  verified in place on a Phase 3 database in the real app). Credentials are
+  BLOCK in every built-in profile; company-rule matches are enforced in every
+  profile; a rule's own action beats the profile.
+* Resolution order: user override → company rule action → profile entity
+  action → profile company-rule action → category action → default. Findings
+  below the profile's confidence threshold are kept (credentials and company
+  rules never are). GENERALIZE falls back to MASK for types with no coarser
+  form. Every decision carries a content-free reason ("Company Default masks
+  government ids.").
+* Overlaps: overlapping findings merge (transitively) into one region with
+  the strongest action (BLOCK > REDACT > MASK > GENERALIZE > ALLOW); the
+  other members are marked `covered_by`. Regions are what Phase 5 masks.
+* Overrides: per scan, by finding or by value group (every occurrence of the
+  same value), never persisted. Keeping a critical or credential finding
+  requires `acknowledge_risk`; the UI asks first. Switching profile on a
+  finished scan keeps the user's own decisions.
+* Engine 298 tests (+1 IPv6 case skipped here), host 13 tests, UI 18 tests;
+  ruff, mypy `--strict`, clippy `-D warnings` clean.
+* Real app (Linux, Xvfb): profiles loaded from the engine; the DOCX scan
+  showed the GitHub token blocked with a "1 item is blocked" banner; changed
+  it to Redact (banner cleared, counts updated); choosing Keep on the Aadhaar
+  number asked for confirmation and Cancel left it masked; switching to
+  Strict re-applied the profile without rescanning and kept the token
+  override. Originals byte-identical; log held only allowlisted events;
+  database held no document values; no processes left after closing.
+
+Not done in this phase: a screen for creating and editing custom profiles
+(the `profiles.*` methods exist; the UI only selects profiles). That screen
+belongs with the "teach Airlock" flow in Phase 6.

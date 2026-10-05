@@ -255,6 +255,31 @@ scan.start(path)
   the last four characters), the structural location label, and whether
   the location is hidden. Raw values stay in the scan session.
 
+## 5c. Policy (Phase 4)
+
+```
+Detected (Phase 3) ──▶ PolicyEngine.decide(items, profile, overrides)
+                         per finding: override │ rule action │ profile entity
+                                      │ company-rule │ category │ default
+                                      + confidence threshold, GENERALIZE fallback
+                         overlaps → regions (union span, strongest action)
+                     ──▶ PolicyDecision {findings[Finding], regions[Region], blocked}
+```
+
+* **Profiles** (`policy/profiles.py`): Company Default, Strict and Secrets
+  & IDs only are built in and immutable; custom profiles (`storage/profiles.py`)
+  name their built-in base and store only their differences in
+  `policy_rules`. The user's default profile is a setting.
+* **Credentials default to BLOCK** in every built-in profile. BLOCK means the
+  document cannot be shared as is until the user chooses another action;
+  Phase 7 enforces it at export.
+* **Explainable**: each `Finding` carries `policy_reason`, a short sentence
+  naming the profile or rule that decided it, and never the value.
+* **Regions** are the masker's input (Phase 5): non-overlapping spans per
+  segment with one action and the primary finding's type and mask style.
+* **Overrides** live in the scan session only. They target a finding or a
+  value group, so one decision covers every occurrence of the same value.
+
 ## 6. Data model
 
 ### 6.1 In-memory (engine)
@@ -340,7 +365,8 @@ CREATE TABLE license (               -- cache of the verified licence (host-owne
 );
 ```
 
-Implemented in `engine/src/airlock_engine/storage/db.py` (migration v1).
+Implemented in `engine/src/airlock_engine/storage/db.py` (migration v1;
+v2 adds `base_id`, `min_confidence` and `mask_style` to `privacy_profiles`).
 Two deviations from the sketch above: `custom_rules` also has `updated_at`,
 and `allow_list` is unique on `(value_hmac, entity_type)` rather than on the
 hash alone, so a value can be allowed as one type but not another. The engine
@@ -381,7 +407,7 @@ class OcrProvider(ABC):
 Planned for later phases (shape fixed now, code later):
 
 ```python
-class PolicyEngine:   def decide(self, detections, profile) -> list[Finding]
+class PolicyEngine:   def decide(self, items, profile, overrides) -> PolicyDecision   # ✅ Phase 4
 class Masker:         def replacements(self, findings, style, vault) -> list[Replacement]
 class RiskScorer:     def score(self, findings) -> RiskReport          # deterministic, explainable
 class Verifier:       def verify(self, original_findings, produced_file) -> VerificationReport

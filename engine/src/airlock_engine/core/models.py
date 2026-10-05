@@ -181,7 +181,18 @@ class Finding:
     finding_id: str
     detection: DetectionResult
     category: Category
+    #: What the policy (or the user) decided for this finding on its own.
     action: Action
+    #: Content-free explanation shown in the report.
     policy_reason: str
     # Other detections that overlapped this span and were merged into it.
     corroborating_detectors: tuple[str, ...] = field(default=())
+    #: Placeholder style for MASK (Phase 5): typed_placeholder, placeholder...
+    mask_style: str = "typed_placeholder"
+    #: The user changed the action for this scan.
+    overridden: bool = False
+    #: Set when the finding lies inside a larger region decided by another
+    #: finding; the region's action then applies to this span too.
+    covered_by: str | None = None
+    #: Action that will actually apply to this span after overlap resolution.
+    effective_action: Action | None = None

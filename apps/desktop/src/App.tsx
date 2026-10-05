@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { DropZone, type Selection } from "./components/DropZone";
 import { ErrorNotice } from "./components/ErrorNotice";
 import { ExtractionReport } from "./components/ExtractionReport";
-import { FindingsReport } from "./components/FindingsReport";
+import { FindingsReport, type ActionHandler } from "./components/FindingsReport";
 import { AirlockMark, ChevronIcon } from "./components/icons";
 import { ScanProgress } from "./components/ScanProgress";
 import { TrustBar } from "./components/TrustBar";
@@ -12,11 +12,18 @@ import {
   toEngineError,
   type EngineError,
   type EngineState,
+  type PolicyUpdate,
   type Progress,
   type ScanResult,
 } from "./engine/types";
 
-const PROFILES = [{ id: "company-default", label: "Company Default" }];
+interface ProfileOption {
+  id: string;
+  label: string;
+}
+
+/** Shown until the engine's list arrives (and if it cannot be loaded). */
+const FALLBACK_PROFILES: ProfileOption[] = [{ id: "company-default", label: "Company Default" }];
 
 type Scan =
   | { status: "idle" }
@@ -34,7 +41,9 @@ export function App() {
   const [error, setError] = useState<EngineError | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [hovering, setHovering] = useState(false);
-  const [profile, setProfile] = useState(PROFILES[0]!.id);
+  const [profiles, setProfiles] = useState<ProfileOption[]>(FALLBACK_PROFILES);
+  const [profile, setProfile] = useState(FALLBACK_PROFILES[0]!.id);
+  const [applying, setApplying] = useState(false);
   // Ignore results from work that a newer file selection replaced.
   const latestRequest = useRef(0);
   const runningTag = useRef<string | null>(null);
@@ -53,6 +62,22 @@ export function App() {
   useEffect(() => {
     void connect();
   }, [connect]);
+
+  useEffect(() => {
+    if (engine.state !== "ready") return;
+    let cancelled = false;
+    platform
+      .listProfiles()
+      .then((list) => {
+        if (cancelled || list.profiles.length === 0) return;
+        setProfiles(list.profiles.map((p) => ({ id: p.id, label: p.name })));
+        setProfile(list.default_id);
+      })
+      .catch(() => undefined); // keep the fallback; scanning still works
+    return () => {
+      cancelled = true;
+    };
+  }, [engine.state, platform]);
 
   const stopRunningScan = useCallback(() => {
     if (runningTag.current) void platform.cancel(runningTag.current).catch(() => undefined);
@@ -124,7 +149,7 @@ export function App() {
     setNotice(null);
     setScan({ status: "running", tag, progress: null });
     try {
-      const result = await platform.scan(selection.path, tag, (progress) => {
+      const result = await platform.scan(selection.path, profile, tag, (progress) => {
         if (runningTag.current === tag) setScan({ status: "running", tag, progress });
       });
       if (request !== latestRequest.current || runningTag.current !== tag) {
@@ -142,7 +167,51 @@ export function App() {
     } finally {
       if (runningTag.current === tag) runningTag.current = null;
     }
-  }, [platform, selection]);
+  }, [platform, selection, profile]);
+
+  const applyUpdate = useCallback((update: PolicyUpdate) => {
+    setScan((current) =>
+      current.status === "done" && current.result.scan_id === update.scan_id
+        ? {
+            status: "done",
+            result: { ...current.result, findings: update.findings, summary: update.summary, policy: update.policy },
+          }
+        : current,
+    );
+  }, []);
+
+  const policyCall = useCallback(
+    async (call: () => Promise<PolicyUpdate>) => {
+      setApplying(true);
+      setError(null);
+      try {
+        applyUpdate(await call());
+      } catch (err) {
+        setError(toEngineError(err));
+      } finally {
+        setApplying(false);
+      }
+    },
+    [applyUpdate],
+  );
+
+  const changeProfile = useCallback(
+    (id: string) => {
+      setProfile(id);
+      if (scan.status === "done") void policyCall(() => platform.setProfile(scan.result.scan_id, id));
+    },
+    [platform, policyCall, scan],
+  );
+
+  const changeAction: ActionHandler = useCallback(
+    (finding, action, acknowledgeRisk) => {
+      if (scan.status !== "done") return;
+      void policyCall(() =>
+        platform.override(scan.result.scan_id, [{ value_group: finding.value_group, action }], acknowledgeRisk),
+      );
+    },
+    [platform, policyCall, scan],
+  );
 
   const cancelScan = useCallback(() => {
     if (runningTag.current) void platform.cancel(runningTag.current).catch(() => undefined);
@@ -182,8 +251,8 @@ export function App() {
             <label className="field">
               <span className="field__label">Privacy Profile</span>
               <span className="select">
-                <select value={profile} onChange={(e) => setProfile(e.target.value)}>
-                  {PROFILES.map((p) => (
+                <select value={profile} disabled={applying} onChange={(e) => changeProfile(e.target.value)}>
+                  {profiles.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.label}
                     </option>
@@ -206,7 +275,7 @@ export function App() {
 
         {scan.status === "done" && (
           <>
-            <FindingsReport result={scan.result} />
+            <FindingsReport result={scan.result} onAction={changeAction} busy={applying} />
             <ExtractionReport summary={scan.result.extraction} />
           </>
         )}

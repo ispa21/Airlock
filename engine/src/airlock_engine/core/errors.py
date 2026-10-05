@@ -206,3 +206,36 @@ def storage_unavailable() -> AirlockError:
         next_step="Restart Airlock. If it keeps happening, check that your user profile "
         "folder is writable.",
     )
+
+
+# --- policy (Phase 4) -------------------------------------------------------
+
+
+def profile_not_found() -> AirlockError:
+    return AirlockError(
+        kind="profile_not_found",
+        message="This privacy profile no longer exists. It may have been deleted.",
+        next_step="Choose another profile.",
+    )
+
+
+def invalid_profile(message: str) -> AirlockError:
+    return AirlockError(kind="invalid_profile", message=message,
+                        next_step="Adjust the profile and try again.")
+
+
+def finding_not_found() -> AirlockError:
+    return AirlockError(
+        kind="finding_not_found",
+        message="One of these findings is not part of this scan.",
+        next_step="Scan the file again.",
+    )
+
+
+def confirmation_required() -> AirlockError:
+    return AirlockError(
+        kind="confirmation_required",
+        message="You chose to keep a critical finding, such as a password, key or "
+        "national id. It would be shared with the AI as it is.",
+        next_step="Confirm that you want to keep it, or choose mask, redact or block.",
+    )

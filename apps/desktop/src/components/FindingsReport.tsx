@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import type { CategoryGroup, Finding, ScanResult, SeverityLabel } from "../engine/types";
+import type { CategoryGroup, Finding, PolicyAction, ScanResult, SeverityLabel } from "../engine/types";
 import { AlertIcon } from "./icons";
 
 export const CATEGORY_LABELS: Record<CategoryGroup, string> = {
@@ -37,9 +37,46 @@ function detectorLabel(finding: Finding): string {
   return "Pattern + validation";
 }
 
-function FindingRow({ finding }: { finding: Finding }) {
+/** "E-mail address" → "e-mail address"; acronyms and names ("PAN", "Aadhaar") keep their case. */
+export function midSentence(label: string): string {
+  const first = label.split(" ")[0] ?? "";
+  if (first === first.toUpperCase() || first === "Aadhaar") return label;
+  return label.charAt(0).toLowerCase() + label.slice(1);
+}
+
+export const ACTION_LABELS: Record<PolicyAction, string> = {
+  ALLOW: "Keep",
+  GENERALIZE: "Generalise",
+  MASK: "Mask",
+  REDACT: "Redact",
+  BLOCK: "Block",
+};
+const ACTION_ORDER: PolicyAction[] = ["MASK", "REDACT", "GENERALIZE", "BLOCK", "ALLOW"];
+
+export type ActionHandler = (finding: Finding, action: PolicyAction | null, acknowledgeRisk: boolean) => void;
+
+function FindingRow({
+  finding,
+  onAction,
+  busy,
+}: {
+  finding: Finding;
+  onAction?: ActionHandler | undefined;
+  busy: boolean;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const choose = (value: string) => {
+    if (!onAction) return;
+    const action = value === "" ? null : (value as PolicyAction);
+    if (action === "ALLOW" && finding.high_risk) {
+      setConfirming(true);
+      return;
+    }
+    onAction(finding, action, false);
+  };
+  const covered = finding.covered_by !== null && finding.effective_action !== finding.action;
   return (
-    <li className="finding" data-severity={finding.severity}>
+    <li className="finding" data-severity={finding.severity} data-action={finding.effective_action}>
       <span className={`sev sev--${finding.severity}`}>{SEVERITY_LABELS[finding.severity]}</span>
       <span className="finding__main">
         <span className="finding__type">{finding.entity_label}</span>
@@ -48,17 +85,65 @@ function FindingRow({ finding }: { finding: Finding }) {
       <span className="finding__where">
         {finding.location.label}
         {finding.hidden && <span className="tag">Hidden</span>}
+        <span className="finding__how" title={`Detector: ${finding.detector}`}>
+          {detectorLabel(finding)} · {Math.round(finding.confidence * 100)}%
+        </span>
       </span>
-      <span className="finding__how" title={`Detector: ${finding.detector}`}>
-        {detectorLabel(finding)} · {Math.round(finding.confidence * 100)}%
+      <span className="finding__action">
+        <select
+          aria-label={`Action for ${finding.entity_label} ${finding.id}`}
+          className={`action action--${finding.action.toLowerCase()}`}
+          value={finding.action}
+          disabled={!onAction || busy}
+          onChange={(e) => choose(e.target.value)}
+        >
+          {ACTION_ORDER.filter((a) => a !== "GENERALIZE" || finding.generalizable).map((a) => (
+            <option key={a} value={a}>
+              {ACTION_LABELS[a]}
+            </option>
+          ))}
+          {finding.overridden && <option value="">Reset to profile</option>}
+        </select>
       </span>
+      <p className="finding__reason">
+        {finding.reason}
+        {covered && ` Part of a larger finding that is set to ${ACTION_LABELS[finding.effective_action].toLowerCase()}.`}
+      </p>
+      {confirming && (
+        <div className="finding__confirm" role="alertdialog" aria-label="Confirm keeping this finding">
+          <span>
+            Keep this {midSentence(finding.entity_label)}? It would be shared with the AI as it is.
+          </span>
+          <button
+            type="button"
+            className="danger"
+            onClick={() => {
+              setConfirming(false);
+              onAction?.(finding, "ALLOW", true);
+            }}
+          >
+            Keep anyway
+          </button>
+          <button type="button" className="ghost" onClick={() => setConfirming(false)}>
+            Cancel
+          </button>
+        </div>
+      )}
     </li>
   );
 }
 
-export function FindingsReport({ result }: { result: ScanResult }) {
+export function FindingsReport({
+  result,
+  onAction,
+  busy = false,
+}: {
+  result: ScanResult;
+  onAction?: ActionHandler | undefined;
+  busy?: boolean;
+}) {
   const [showAll, setShowAll] = useState(false);
-  const { summary, findings } = result;
+  const { summary, findings, policy } = result;
   const rows = showAll ? findings : findings.slice(0, INITIAL_ROWS);
 
   return (
@@ -82,6 +167,29 @@ export function FindingsReport({ result }: { result: ScanResult }) {
               </li>
             ))}
           </ul>
+          {policy.blocked > 0 ? (
+            <div className="notice notice--error" role="status">
+              <AlertIcon className="notice__icon" />
+              <div>
+                <p className="notice__title">
+                  {plural(policy.blocked, "item")} {policy.blocked === 1 ? "is" : "are"} blocked
+                </p>
+                <p className="notice__body">
+                  Credentials and other blocked data can't be shared as they are. Choose Redact or Mask for them,
+                  or remove them from the file.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <p className="findings__ready" role="status">
+              Nothing is blocked. With {policy.profile.name}, Airlock will{" "}
+              {(["MASK", "REDACT", "GENERALIZE"] as PolicyAction[])
+                .filter((a) => policy.actions[a] > 0)
+                .map((a) => `${ACTION_LABELS[a].toLowerCase()} ${number.format(policy.actions[a])}`)
+                .join(", ") || "change nothing"}
+              {policy.actions.ALLOW > 0 ? ` and keep ${number.format(policy.actions.ALLOW)}` : ""}.
+            </p>
+          )}
           {summary.hidden > 0 && (
             <p className="report__callout">
               {plural(summary.hidden, "finding")} {summary.hidden === 1 ? "is" : "are"} in hidden parts of the file
@@ -103,7 +211,7 @@ export function FindingsReport({ result }: { result: ScanResult }) {
 
           <ul className="findings__list" aria-label="Findings">
             {rows.map((f) => (
-              <FindingRow key={f.id} finding={f} />
+              <FindingRow key={f.id} finding={f} onAction={onAction} busy={busy} />
             ))}
           </ul>
           {!showAll && findings.length > INITIAL_ROWS && (
@@ -139,7 +247,8 @@ export function FindingsReport({ result }: { result: ScanResult }) {
         </p>
       )}
       <p className="report__foot">
-        Previews are partly hidden on purpose. Choosing what to mask, redact or block comes next.
+        Previews are partly hidden on purpose. A change applies to every place the same value appears. Producing the
+        protected copy comes next.
       </p>
     </section>
   );

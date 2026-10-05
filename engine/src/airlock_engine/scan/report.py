@@ -15,6 +15,8 @@ from airlock_engine.core.models import Category, SegmentKind, Severity
 from airlock_engine.core.sensitive import mask_preview
 from airlock_engine.detectors.entities import BUILTIN_ENTITIES, QualityClass
 from airlock_engine.detectors.pipeline import DetectionOutcome
+from airlock_engine.policy.engine import is_high_risk
+from airlock_engine.policy.profiles import GENERALIZABLE
 from airlock_engine.scan import ScanSession
 
 #: Findings listed individually in one response; the summary always counts all.
@@ -78,26 +80,21 @@ def build_report(
     rule_count: int,
 ) -> dict[str, Any]:
     outcome: DetectionOutcome = session.outcome
+    decision = session.decision or session.redecide()
     segments = {s.segment_id: s for s in session.document.segments}
-    value_groups: dict[tuple[str, str], int] = {}
     findings: list[dict[str, Any]] = []
     by_entity: Counter[str] = Counter()
     by_category: Counter[str] = Counter()
     by_severity: Counter[str] = Counter()
     hidden = 0
     max_severity = 0
-    ordered = sorted(
-        outcome.detected,
-        key=lambda d: (-int(d.detection.severity), d.detection.segment_id, d.detection.start),
-    )
-    for n, item in enumerate(ordered, start=1):
-        d = item.detection
+    ordered = decision.findings
+    for f in ordered:
+        d = f.detection
         info = entities.get(d.entity_type) or EntityInfo(
             d.entity_type, Category.OTHER.value, QualityClass.COMPANY_RULE.value
         )
         segment = segments[d.segment_id]
-        raw = d.matched_value.reveal()
-        group = value_groups.setdefault((d.entity_type, raw), len(value_groups) + 1)
         is_hidden = segment.kind not in _VISIBLE_KINDS
         hidden += is_hidden
         by_entity[d.entity_type] += 1
@@ -105,28 +102,36 @@ def build_report(
         by_severity[SEVERITY_LABELS[d.severity]] += 1
         max_severity = max(max_severity, int(d.severity))
         if len(findings) < MAX_LISTED_FINDINGS:
+            effective = f.effective_action or f.action
             findings.append(
                 {
-                    "id": f"f{n}",
+                    "id": f.finding_id,
                     "entity_type": d.entity_type,
                     "entity_label": info.label,
                     "category": info.category,
                     "severity": SEVERITY_LABELS[d.severity],
                     "confidence": round(d.confidence, 2),
                     "detector": d.detector,
-                    "corroborated_by": list(item.corroborating),
+                    "corroborated_by": list(f.corroborating_detectors),
                     "rule_id": d.rule_id if d.detector.startswith("custom.") else None,
-                    "preview": preview(d.entity_type, info.quality, raw),
+                    "preview": preview(d.entity_type, info.quality, d.matched_value.reveal()),
                     "location": {"kind": segment.kind.value, "label": segment.label},
                     "hidden": is_hidden,
-                    "value_group": group,
+                    "value_group": session.value_group[f.finding_id],
+                    "action": f.action.value,
+                    "effective_action": effective.value,
+                    "reason": f.policy_reason,
+                    "overridden": f.overridden,
+                    "covered_by": f.covered_by,
+                    "generalizable": d.entity_type in GENERALIZABLE,
+                    "high_risk": is_high_risk(d.severity, Category(info.category)),
                 }
             )
 
     summary = {
         "total": len(ordered),
         "listed": len(findings),
-        "distinct_values": len(value_groups),
+        "distinct_values": len(set(session.value_group.values())),
         "hidden": hidden,
         "max_severity": SEVERITY_LABELS[Severity(max_severity)] if max_severity else None,
         "by_severity": {label: by_severity[label] for label in SEVERITY_LABELS.values()},
@@ -149,4 +154,18 @@ def build_report(
         },
         "allowed": outcome.allowed,
     }
-    return {"findings": findings, "summary": summary}
+    return {"findings": findings, "summary": summary, "policy": policy_summary(session)}
+
+
+def policy_summary(session: ScanSession) -> dict[str, Any]:
+    decision = session.decision or session.redecide()
+    profile = decision.profile
+    return {
+        "profile": {"id": profile.id, "name": profile.name, "builtin": profile.builtin},
+        "actions": decision.counts(),
+        "regions": len(decision.regions),
+        "blocked": decision.blocked,
+        "overridden": sum(1 for f in decision.findings if f.overridden),
+        # Phase 7 adds verification; this only says no BLOCK is left.
+        "ready": decision.blocked == 0,
+    }

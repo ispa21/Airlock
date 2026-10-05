@@ -65,6 +65,15 @@ real-world recall. Run `uv run pytest tests/test_quality_gates.py -s` to
 print the per-entity table. Company rules are gated at 1.00/1.00 in
 `tests/test_company_rules.py`.
 
+## Policy tests (Phase 4)
+
+`test_policy.py` covers every built-in profile's table (credentials → BLOCK
+everywhere), resolution order, confidence threshold, GENERALIZE fallback,
+reasons, and overlap regions (containment, partial and chained overlaps).
+`test_profiles.py` covers custom profiles, validation and the v1 → v2 schema
+migration; `test_api_policy.py` drives overrides, risk acknowledgement and
+profile switching over RPC and checks no raw value appears in any response.
+
 ## Leak tests (Phase 5+)
 
 Canary values are seeded into every part of each test document: body,

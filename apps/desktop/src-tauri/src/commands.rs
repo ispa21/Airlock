@@ -17,7 +17,14 @@ const ALLOWED_METHODS: &[&str] = &[
     "document.inspect",
     "document.extract",
     "scan.start",
+    "scan.set_profile",
+    "scan.override",
     "scan.discard",
+    "profiles.list",
+    "profiles.create",
+    "profiles.update",
+    "profiles.delete",
+    "profiles.set_default",
     "rules.list",
     "rules.create",
     "rules.update",
@@ -107,6 +114,8 @@ mod tests {
     fn scan_methods_are_exposed_with_a_long_timeout() {
         assert!(ALLOWED_METHODS.contains(&"scan.start"));
         assert!(ALLOWED_METHODS.contains(&"rules.create"));
+        assert!(ALLOWED_METHODS.contains(&"scan.override"));
+        assert!(ALLOWED_METHODS.contains(&"profiles.list"));
         assert!(timeout_for("scan.start") > timeout_for("document.extract"));
     }
 

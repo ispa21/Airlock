@@ -3,7 +3,18 @@
  * It never touches real files and is excluded from production builds.
  */
 import type { DropHandlers, Platform } from "./platform";
-import type { EngineError, ExtractSummary, FormatFamily, InspectResult, Progress, ScanResult } from "./types";
+import type {
+  EngineError,
+  ExtractSummary,
+  Finding,
+  FormatFamily,
+  InspectResult,
+  Override,
+  PolicyAction,
+  PolicySummary,
+  Progress,
+  ScanResult,
+} from "./types";
 
 const FAMILIES: Record<string, [string, string, FormatFamily]> = {
   pdf: ["pdf", "PDF document", "document"],
@@ -38,7 +49,55 @@ const PREVIEW_SUMMARY: ExtractSummary = {
   duration_ms: 1_840,
 };
 
-const PREVIEW_RESULT: ScanResult = {
+type RawFinding = Omit<
+  Finding,
+  "action" | "effective_action" | "reason" | "overridden" | "covered_by" | "generalizable" | "high_risk"
+>;
+
+const PROFILE_ACTIONS: Record<string, Record<string, PolicyAction>> = {
+  "company-default": { API_KEY: "BLOCK", AADHAAR: "MASK", INTERNAL_PROJECT: "MASK", EMAIL: "MASK", PERSON: "MASK" },
+  strict: { API_KEY: "BLOCK", AADHAAR: "REDACT", INTERNAL_PROJECT: "REDACT", EMAIL: "MASK", PERSON: "MASK" },
+  "secrets-and-ids": { API_KEY: "BLOCK", AADHAAR: "MASK", INTERNAL_PROJECT: "MASK", EMAIL: "ALLOW", PERSON: "ALLOW" },
+};
+const PROFILE_NAMES: Record<string, string> = {
+  "company-default": "Company Default",
+  strict: "Strict",
+  "secrets-and-ids": "Secrets & IDs only",
+};
+let previewProfile = "company-default";
+const previewOverrides = new Map<number, PolicyAction>();
+
+function decide(raw: RawFinding[]): { findings: Finding[]; policy: PolicySummary } {
+  const findings = raw.map((f): Finding => {
+    const override = previewOverrides.get(f.value_group);
+    const action = override ?? PROFILE_ACTIONS[previewProfile]?.[f.entity_type] ?? "MASK";
+    return {
+      ...f,
+      action,
+      effective_action: action,
+      reason: override ? "Changed by you." : `${PROFILE_NAMES[previewProfile]} preview decision.`,
+      overridden: override !== undefined,
+      covered_by: null,
+      generalizable: f.entity_type === "EMAIL",
+      high_risk: f.severity === "critical",
+    };
+  });
+  const actions: Record<PolicyAction, number> = { ALLOW: 0, MASK: 0, REDACT: 0, GENERALIZE: 0, BLOCK: 0 };
+  for (const f of findings) actions[f.effective_action] += 1;
+  return {
+    findings,
+    policy: {
+      profile: { id: previewProfile, name: PROFILE_NAMES[previewProfile] ?? previewProfile, builtin: true },
+      actions,
+      regions: findings.length - actions.ALLOW,
+      blocked: actions.BLOCK,
+      overridden: previewOverrides.size,
+      ready: actions.BLOCK === 0,
+    },
+  };
+}
+
+const PREVIEW_RAW: { findings: RawFinding[] } & Omit<ScanResult, "findings" | "policy"> = {
   scan_id: "scan_preview",
   extraction: PREVIEW_SUMMARY,
   detection_ms: 420,
@@ -132,7 +191,9 @@ export const previewPlatform: Platform = {
     };
   },
 
-  async scan(_path: string, tag: string, onProgress: (progress: Progress) => void): Promise<ScanResult> {
+  async scan(_path: string, profileId: string, tag: string, onProgress: (progress: Progress) => void): Promise<ScanResult> {
+    previewProfile = profileId;
+    previewOverrides.clear();
     cancelled.delete(tag);
     for (let page = 0; page <= 12; page += 1) {
       if (cancelled.has(tag)) {
@@ -144,7 +205,40 @@ export const previewPlatform: Platform = {
     }
     onProgress({ stage: "detect", done: 1, total: 2 });
     await delay(300);
-    return PREVIEW_RESULT;
+    return { ...PREVIEW_RAW, ...decide(PREVIEW_RAW.findings) };
+  },
+
+  async listProfiles() {
+    return {
+      default_id: "company-default",
+      profiles: Object.entries(PROFILE_NAMES).map(([id, name]) => ({
+        id,
+        name,
+        description: "",
+        builtin: true,
+        base_id: null,
+        default: id === "company-default",
+        min_confidence: 0.6,
+        mask_style: "typed_placeholder",
+        actions: {},
+      })),
+    };
+  },
+
+  async setProfile(scanId: string, profileId: string) {
+    previewProfile = profileId;
+    await delay(150);
+    return { scan_id: scanId, summary: PREVIEW_RAW.summary, ...decide(PREVIEW_RAW.findings) };
+  },
+
+  async override(scanId: string, overrides: Override[]) {
+    for (const o of overrides) {
+      if (o.value_group === undefined) continue;
+      if (o.action === null) previewOverrides.delete(o.value_group);
+      else previewOverrides.set(o.value_group, o.action);
+    }
+    await delay(150);
+    return { scan_id: scanId, summary: PREVIEW_RAW.summary, ...decide(PREVIEW_RAW.findings) };
   },
 
   async discard() {},
