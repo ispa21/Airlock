@@ -1,4 +1,4 @@
-import type { EngineInfo, ExtractSummary, InspectResult, Progress } from "./types";
+import type { EngineInfo, InspectResult, Progress, ScanResult } from "./types";
 
 export interface DropHandlers {
   onHover: (hovering: boolean) => void;
@@ -14,11 +14,13 @@ export interface Platform {
   engineInfo(): Promise<EngineInfo>;
   inspect(path: string): Promise<InspectResult>;
   /**
-   * Read every text-bearing part of the file locally. `tag` identifies the
-   * request for progress updates and cancellation.
+   * Read every text-bearing part of the file and detect sensitive data, all
+   * locally. `tag` identifies the request for progress and cancellation.
    */
-  extract(path: string, tag: string, onProgress: (progress: Progress) => void): Promise<ExtractSummary>;
-  /** Cancel the extraction started with `tag`; it then rejects with kind "cancelled". */
+  scan(path: string, tag: string, onProgress: (progress: Progress) => void): Promise<ScanResult>;
+  /** Ask the engine to forget a scan's text and findings. */
+  discard(scanId: string): Promise<void>;
+  /** Cancel the scan started with `tag`; it then rejects with kind "cancelled". */
   cancel(tag: string): Promise<void>;
   pickFile(): Promise<string | null>;
   /** Subscribe to OS file drops. Returns an unsubscribe function. */

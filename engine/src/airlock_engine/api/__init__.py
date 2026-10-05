@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
-from airlock_engine.api import documents, system
+from pathlib import Path
+
+from airlock_engine.api import documents, rules, scan, system
 from airlock_engine.ipc.server import MethodRegistry
+from airlock_engine.scan import SessionStore
+from airlock_engine.storage import Storage
 
 
-def build_registry() -> MethodRegistry:
+def build_registry(data_dir: Path | None = None) -> MethodRegistry:
+    """``data_dir=None`` keeps rules in memory (tests, or no writable profile)."""
     registry = MethodRegistry()
+    storage = Storage(data_dir)
+    sessions = SessionStore()
     system.register(registry)
     documents.register(registry)
+    scan.register(registry, storage, sessions)
+    rules.register(registry, storage)
     return registry

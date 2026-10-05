@@ -168,3 +168,41 @@ def unsafe_archive() -> AirlockError:
         ),
         next_step="Do not open this file. If you trust its source, ask the sender for a new copy.",
     )
+
+
+# --- detection and rules (Phase 3) ------------------------------------------
+
+
+def invalid_rule(message: str) -> AirlockError:
+    return AirlockError(
+        kind="invalid_rule",
+        message=message,
+        next_step="Edit the rule and save it again.",
+    )
+
+
+def rule_not_found() -> AirlockError:
+    return AirlockError(
+        kind="rule_not_found",
+        message="This company rule no longer exists. It may have been deleted.",
+        next_step="Refresh the list of rules.",
+    )
+
+
+def scan_not_found() -> AirlockError:
+    return AirlockError(
+        kind="scan_not_found",
+        message="The results of this scan are no longer available. Airlock keeps them only "
+        "for a limited time and never saves them to disk.",
+        next_step="Scan the file again.",
+    )
+
+
+def storage_unavailable() -> AirlockError:
+    return AirlockError(
+        kind="storage_unavailable",
+        message="Airlock could not open its settings database, so company rules are not "
+        "available right now.",
+        next_step="Restart Airlock. If it keeps happening, check that your user profile "
+        "folder is writable.",
+    )

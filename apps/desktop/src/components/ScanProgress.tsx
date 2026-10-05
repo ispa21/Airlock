@@ -7,11 +7,13 @@ const STAGES: Record<string, (done: number, total: number) => string> = {
   rows: () => "Reading rows",
   parts: () => "Reading comments, notes and hidden parts",
   ocr: (d, t) => `Recognising text in image ${Math.min(d + 1, t)} of ${t}`,
+  prepare: () => "Loading the on-device language model…",
+  detect: () => "Checking for sensitive data",
 };
 
 export function progressLabel(progress: Progress | null): string {
   if (!progress) return "Starting the secure reader…";
-  if (progress.total > 0 && progress.done >= progress.total) return "Finishing up…";
+  if (progress.total > 0 && progress.done >= progress.total && progress.stage !== "prepare") return "Finishing up…";
   return (STAGES[progress.stage] ?? (() => "Reading document"))(progress.done, progress.total);
 }
 

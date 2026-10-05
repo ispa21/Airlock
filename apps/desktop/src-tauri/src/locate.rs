@@ -16,7 +16,23 @@ const ENGINE_BIN: &str = if cfg!(windows) {
     "airlock-engine"
 };
 
+/// The engine keeps its settings database (company rules, allow-list) in the
+/// per-user app data folder, `%LOCALAPPDATA%\com.airlock.desktop` on Windows.
+fn data_dir_args(app: &AppHandle) -> Vec<String> {
+    match app.path().app_local_data_dir() {
+        Ok(dir) => vec!["--data-dir".into(), dir.to_string_lossy().into_owned()],
+        // No profile folder: rules live in memory for this session only.
+        Err(_) => vec!["--memory-only".into()],
+    }
+}
+
 pub fn launch_spec(app: &AppHandle) -> LaunchSpec {
+    let mut spec = base_launch_spec(app);
+    spec.args.extend(data_dir_args(app));
+    spec
+}
+
+fn base_launch_spec(app: &AppHandle) -> LaunchSpec {
     #[cfg(debug_assertions)]
     if let Some(spec) = dev_launch_spec() {
         return spec;

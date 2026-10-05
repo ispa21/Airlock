@@ -108,3 +108,54 @@ export interface Progress {
   done: number;
   total: number;
 }
+
+export type SeverityLabel = "critical" | "high" | "medium" | "low";
+
+export type CategoryGroup =
+  | "PERSONAL"
+  | "GOVERNMENT"
+  | "FINANCIAL"
+  | "BUSINESS"
+  | "CREDENTIALS"
+  | "INTELLECTUAL_PROPERTY"
+  | "OTHER";
+
+/** One detection. The engine sends a masked preview, never the raw value. */
+export interface Finding {
+  id: string;
+  entity_type: string;
+  entity_label: string;
+  category: CategoryGroup;
+  severity: SeverityLabel;
+  confidence: number;
+  detector: string;
+  corroborated_by: string[];
+  rule_id: string | null;
+  preview: string;
+  location: { kind: SegmentKind; label: string };
+  hidden: boolean;
+  value_group: number;
+}
+
+export interface ScanSummary {
+  total: number;
+  listed: number;
+  distinct_values: number;
+  hidden: number;
+  max_severity: SeverityLabel | null;
+  by_severity: Record<SeverityLabel, number>;
+  by_category: { category: CategoryGroup; count: number }[];
+  by_entity: { entity_type: string; label: string; category: CategoryGroup; count: number }[];
+  detectors: { ner: "used" | "unavailable" | "disabled" | "partial"; company_rules: number; rule_timeouts: number };
+  allowed: number;
+}
+
+/** Result of `scan.start`: extraction summary plus detections. */
+export interface ScanResult {
+  scan_id: string;
+  extraction: ExtractSummary;
+  findings: Finding[];
+  summary: ScanSummary;
+  detection_ms: number;
+  risk: null;
+}

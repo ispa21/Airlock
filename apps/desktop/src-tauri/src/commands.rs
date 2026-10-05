@@ -12,7 +12,18 @@ use tauri::State;
 
 use crate::engine::{Engine, EngineError, EngineInfo};
 
-const ALLOWED_METHODS: &[&str] = &["system.health", "document.inspect", "document.extract"];
+const ALLOWED_METHODS: &[&str] = &[
+    "system.health",
+    "document.inspect",
+    "document.extract",
+    "scan.start",
+    "scan.discard",
+    "rules.list",
+    "rules.create",
+    "rules.update",
+    "rules.delete",
+    "rules.add_category",
+];
 
 fn timeout_for(method: &str) -> Duration {
     match method {
@@ -20,6 +31,8 @@ fn timeout_for(method: &str) -> Duration {
         // The engine enforces its own 15-minute extraction limit; this only
         // guards against a wedged engine.
         "document.extract" => Duration::from_secs(1_000),
+        // Extraction (≤ 15 min, enforced by the engine) plus detection.
+        "scan.start" => Duration::from_secs(1_500),
         _ => Duration::from_secs(10),
     }
 }
@@ -88,6 +101,13 @@ mod tests {
         assert!(!ALLOWED_METHODS.contains(&"system.shutdown"));
         assert!(!ALLOWED_METHODS.contains(&"system.hello"));
         assert!(ALLOWED_METHODS.iter().all(|m| !m.starts_with("$/")));
+    }
+
+    #[test]
+    fn scan_methods_are_exposed_with_a_long_timeout() {
+        assert!(ALLOWED_METHODS.contains(&"scan.start"));
+        assert!(ALLOWED_METHODS.contains(&"rules.create"));
+        assert!(timeout_for("scan.start") > timeout_for("document.extract"));
     }
 
     #[test]

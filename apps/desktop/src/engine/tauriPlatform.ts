@@ -7,9 +7,9 @@ import type { DropHandlers, Platform } from "./platform";
 import {
   toEngineError,
   type EngineInfo,
-  type ExtractSummary,
   type InspectResult,
   type Progress,
+  type ScanResult,
 } from "./types";
 
 async function call<T>(method: string, params: Record<string, unknown> = {}, tag?: string): Promise<T> {
@@ -48,7 +48,7 @@ export const tauriPlatform: Platform = {
     return call<InspectResult>("document.inspect", { path });
   },
 
-  async extract(path: string, tag: string, onProgress: (progress: Progress) => void) {
+  async scan(path: string, tag: string, onProgress: (progress: Progress) => void) {
     const unlisten = await listen<ProgressNotification>("engine://notification", (event) => {
       const params = event.payload.params;
       if (event.payload.method === "$/progress" && params?.tag === tag) {
@@ -56,10 +56,14 @@ export const tauriPlatform: Platform = {
       }
     });
     try {
-      return await call<ExtractSummary>("document.extract", { path }, tag);
+      return await call<ScanResult>("scan.start", { path }, tag);
     } finally {
       unlisten();
     }
+  },
+
+  async discard(scanId: string) {
+    await call<{ ok: boolean }>("scan.discard", { scan_id: scanId });
   },
 
   async cancel(tag: string) {

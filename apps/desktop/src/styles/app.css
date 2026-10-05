@@ -700,3 +700,127 @@ select {
   color: var(--muted);
   font-size: 12.5px;
 }
+
+/* Findings report ------------------------------------------------------------ */
+.findings__none {
+  margin: 0;
+  color: var(--ink-2);
+}
+
+.report__group {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.sev-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sev {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.sev strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.sev--critical {
+  color: var(--bad);
+  background: var(--bad-tint);
+  border-color: color-mix(in srgb, var(--bad) 35%, var(--line));
+}
+
+.sev--high {
+  color: var(--warn);
+  background: var(--warn-tint);
+  border-color: color-mix(in srgb, var(--warn) 35%, var(--line));
+}
+
+.sev--medium {
+  color: var(--ink-2);
+  background: var(--surface-2);
+}
+
+.sev--low {
+  color: var(--muted);
+}
+
+.findings__list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.finding {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1.4fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.finding .sev {
+  justify-content: center;
+}
+
+.finding__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.finding__type {
+  font-weight: 600;
+}
+
+.finding__preview {
+  overflow: hidden;
+  color: var(--ink-2);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.finding__where {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-2);
+}
+
+.finding__how {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .finding {
+    grid-template-columns: 70px minmax(0, 1fr);
+  }
+
+  .finding__where,
+  .finding__how {
+    grid-column: 2;
+  }
+}

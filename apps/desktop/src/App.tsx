@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { DropZone, type Selection } from "./components/DropZone";
 import { ErrorNotice } from "./components/ErrorNotice";
 import { ExtractionReport } from "./components/ExtractionReport";
+import { FindingsReport } from "./components/FindingsReport";
 import { AirlockMark, ChevronIcon } from "./components/icons";
 import { ScanProgress } from "./components/ScanProgress";
 import { TrustBar } from "./components/TrustBar";
@@ -11,8 +12,8 @@ import {
   toEngineError,
   type EngineError,
   type EngineState,
-  type ExtractSummary,
   type Progress,
+  type ScanResult,
 } from "./engine/types";
 
 const PROFILES = [{ id: "company-default", label: "Company Default" }];
@@ -20,7 +21,7 @@ const PROFILES = [{ id: "company-default", label: "Company Default" }];
 type Scan =
   | { status: "idle" }
   | { status: "running"; tag: string; progress: Progress | null }
-  | { status: "done"; summary: ExtractSummary };
+  | { status: "done"; result: ScanResult };
 
 let scanCounter = 0;
 const newTag = () => `scan-${Date.now().toString(36)}-${(scanCounter += 1)}`;
@@ -37,6 +38,8 @@ export function App() {
   // Ignore results from work that a newer file selection replaced.
   const latestRequest = useRef(0);
   const runningTag = useRef<string | null>(null);
+  // The engine keeps a finished scan's text in memory until told to forget it.
+  const lastScanId = useRef<string | null>(null);
 
   const connect = useCallback(async () => {
     setEngine({ state: "starting" });
@@ -54,6 +57,8 @@ export function App() {
   const stopRunningScan = useCallback(() => {
     if (runningTag.current) void platform.cancel(runningTag.current).catch(() => undefined);
     runningTag.current = null;
+    if (lastScanId.current) void platform.discard(lastScanId.current).catch(() => undefined);
+    lastScanId.current = null;
   }, [platform]);
 
   const load = useCallback(
@@ -110,6 +115,8 @@ export function App() {
 
   const startScan = useCallback(async () => {
     if (selection.status !== "verified") return;
+    if (lastScanId.current) void platform.discard(lastScanId.current).catch(() => undefined);
+    lastScanId.current = null;
     const request = latestRequest.current;
     const tag = newTag();
     runningTag.current = tag;
@@ -117,11 +124,15 @@ export function App() {
     setNotice(null);
     setScan({ status: "running", tag, progress: null });
     try {
-      const summary = await platform.extract(selection.path, tag, (progress) => {
+      const result = await platform.scan(selection.path, tag, (progress) => {
         if (runningTag.current === tag) setScan({ status: "running", tag, progress });
       });
-      if (request !== latestRequest.current || runningTag.current !== tag) return;
-      setScan({ status: "done", summary });
+      if (request !== latestRequest.current || runningTag.current !== tag) {
+        void platform.discard(result.scan_id).catch(() => undefined);
+        return;
+      }
+      lastScanId.current = result.scan_id;
+      setScan({ status: "done", result });
     } catch (err) {
       if (request !== latestRequest.current) return;
       const failure = toEngineError(err);
@@ -193,7 +204,12 @@ export function App() {
           </div>
         )}
 
-        {scan.status === "done" && <ExtractionReport summary={scan.summary} />}
+        {scan.status === "done" && (
+          <>
+            <FindingsReport result={scan.result} />
+            <ExtractionReport summary={scan.result.extraction} />
+          </>
+        )}
 
         <div className="rule" role="presentation" />
 

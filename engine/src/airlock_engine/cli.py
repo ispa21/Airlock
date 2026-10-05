@@ -6,12 +6,14 @@ import argparse
 import multiprocessing
 import os
 import sys
+from pathlib import Path
 from typing import BinaryIO
 
 from airlock_engine import __version__, safelog
 from airlock_engine.api import build_registry
 from airlock_engine.ipc.server import StdioServer
 from airlock_engine.security import network_guard
+from airlock_engine.storage import default_data_dir
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -22,6 +24,17 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--version", action="version", version=f"airlock-engine {__version__}")
     parser.add_argument(
         "--log-level", choices=("debug", "info", "warning", "error"), default="info"
+    )
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=None,
+        help="Per-user folder for the settings database (default: the platform app-data folder).",
+    )
+    parser.add_argument(
+        "--memory-only",
+        action="store_true",
+        help="Keep company rules in memory only (nothing is written to disk).",
     )
     return parser.parse_args(argv)
 
@@ -60,5 +73,6 @@ def main(argv: list[str] | None = None) -> int:
     safelog.configure(args.log_level)
     reader, writer = _claim_stdio()
     safelog.log.info("engine_started", version=__version__, pid=os.getpid())
-    server = StdioServer(build_registry(), reader, writer)
+    data_dir = None if args.memory_only else (args.data_dir or default_data_dir())
+    server = StdioServer(build_registry(data_dir), reader, writer)
     return server.serve_forever()

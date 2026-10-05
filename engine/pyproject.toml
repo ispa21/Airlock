@@ -10,13 +10,17 @@ authors = [{ name = "Airlock" }]
 # copyleft libraries (e.g. AGPL PyMuPDF) are excluded from the shipped engine.
 # Every dependency must run fully offline. See docs/ARCHITECTURE.md §5.
 dependencies = [
-    "defusedxml>=0.7.1",        # PSF-2.0  hardened XML parsing for OOXML parts
-    "pypdfium2>=5.14",          # Apache-2.0/BSD-3  PDF text, metadata, rendering
-    "pillow>=12.0",             # MIT-CMU  image decoding, EXIF
-    "rapidocr>=3.9,<4",         # Apache-2.0  local OCR, models bundled in the wheel
-    "onnxruntime>=1.20",        # MIT  OCR inference
-    "opencv-python-headless>=4.10",  # Apache-2.0  (replaces GUI opencv-python)
-    "numpy>=2.0,<3",            # BSD-3
+    "defusedxml>=0.7.1", # PSF-2.0  hardened XML parsing for OOXML parts
+    "pypdfium2>=5.14", # Apache-2.0/BSD-3  PDF text, metadata, rendering
+    "pillow>=12.0", # MIT-CMU  image decoding, EXIF
+    "rapidocr>=3.9,<4", # Apache-2.0  local OCR, models bundled in the wheel
+    "onnxruntime>=1.20", # MIT  OCR inference
+    "opencv-python-headless>=4.10", # Apache-2.0  (replaces GUI opencv-python)
+    "numpy>=2.0,<3", # BSD-3
+    "spacy>=3.8,<3.9",
+    "phonenumbers>=8.13",
+    "regex>=2024.9",
+    "en-core-web-sm",
 ]
 
 [project.scripts]
@@ -33,12 +37,16 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.11",
     "types-defusedxml>=0.7",
+    "types-regex>=2026.9.10.20260911",
 ]
 
 [tool.uv]
 # rapidocr depends on the GUI build of OpenCV; the engine only needs the
 # headless build (no Qt/GUI libraries, smaller bundle). Both provide `cv2`.
 override-dependencies = ["opencv-python; sys_platform == 'never'"]
+
+[tool.uv.sources]
+en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }
 
 [build-system]
 requires = ["hatchling>=1.25"]
@@ -77,5 +85,5 @@ packages = ["airlock_engine"]
 
 [[tool.mypy.overrides]]
 # No type information shipped; usage is wrapped behind Airlock interfaces.
-module = ["pypdfium2", "pypdfium2.*", "rapidocr", "rapidocr.*"]
+module = ["pypdfium2", "pypdfium2.*", "rapidocr", "rapidocr.*", "spacy", "spacy.*", "en_core_web_sm"]
 ignore_missing_imports = true

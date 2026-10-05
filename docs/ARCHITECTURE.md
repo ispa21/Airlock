@@ -118,7 +118,9 @@ Airlock/
 │   │   ├── documents/               Format registry/sniffing + one adapter per family
 │   │   ├── extraction/              Adapter routing, worker isolation
 │   │   ├── detectors/{regex,secrets,ner,custom}
-│   │   ├── policy/  masking/  verification/  risk/  storage/
+│   │   ├── scan/                    In-memory scan sessions, content-free report
+│   │   ├── storage/                 SQLite: settings, categories, rules, allow-list
+│   │   ├── policy/  masking/  verification/  risk/
 │   │   ├── clipboard/               V2 module boundary (empty)
 │   │   └── safelog.py               Allowlist-only structured logging
 │   └── tests/
@@ -161,7 +163,7 @@ which is never shipped.
 | --- | --- | --- |
 | 1 ✅ | stdlib only (dev: pytest, ruff, mypy) | tauri 2, tauri-plugin-dialog, serde_json; react, @tauri-apps/api, plugin-dialog (dev: vite, vitest, testing-library) |
 | 2 ✅ | defusedxml, pypdfium2, pillow, rapidocr, onnxruntime, opencv-python-headless, numpy (dev: python-docx, openpyxl, python-pptx, reportlab for fixtures) | — |
-| 3 | spacy + `en_core_web_sm` (bundled) | — |
+| 3 ✅ | spacy + `en_core_web_sm` (bundled), phonenumbers, regex | — |
 | 5 | cryptography, pywin32 (DPAPI) | — |
 | 7 | reportlab (rebuild safe PDFs) | — |
 | 8 | pyinstaller | NSIS via tauri-bundler, code-signing tooling |
@@ -206,6 +208,52 @@ document.extract(path)
 * The extracted text never crosses IPC to the UI; `document.extract` returns
   only counts and labels. Phase 3 keeps the document in an engine-side scan
   session for detection.
+
+## 5b. Detection (Phase 3)
+
+```
+scan.start(path)
+  └─ extract_path (same isolated worker as document.extract)
+  └─ DetectionEngine.run(document)                    engine process
+        per segment:  regex detectors ── checksum / context validation
+                      secret detector ── provider tokens, PEM, JWT, assigned secrets
+                      company rules   ── exact / case-insensitive / normalized / alias / regex
+        batched:      NER (spaCy, shared model, lock-guarded)
+        allow-list filter (keyed HMAC of the value)
+        resolve: merge duplicates; checksum beats context guess; any
+                 deterministic match beats overlapping NER
+  └─ ScanSession (engine memory, TTL 30 min, max 4) ── scan_id
+  └─ report: findings with masked previews + content-free summary → UI
+```
+
+* **Entity catalogue** (`detectors/entities.py`): every built-in entity type
+  has a label, report category, default severity and *quality class*
+  (secret, checksummed id, contact, contextual id, company rule, NER). The
+  quality class selects the precision/recall gate and the overlap strength.
+* **Validation over pattern-matching.** Aadhaar uses Verhoeff, GSTIN its
+  mod-36 check character, cards Luhn plus brand ranges, IBAN mod-97, phones
+  libphonenumber metadata. Ids without a checksum (bank account, date of
+  birth, contiguous Aadhaar) require a context keyword nearby or in the
+  column header; reference-number context ("Order", "Invoice", "Ref") vetoes
+  bare phone-like numbers.
+* **Detection is separate from decision.** Detectors only say *what* a span
+  is and how sure they are. Overlap resolution in this phase is limited to
+  detection quality; choosing actions for overlapping findings of different
+  types is Phase 4.
+* **Company rules** compile into one alternation per kind (so thousands of
+  terms stay fast) and match on a normalized copy of the text with an
+  offset map back to the original. Regex rules use the `regex` module with
+  a 250 ms per-segment timeout; a rule that times out three times is
+  skipped for the rest of the document and the report says so.
+* **NER** is optional at run time: if the model cannot load, scanning
+  continues without it and the report says names were not checked. Text
+  beyond 3 M characters per document is not sent to NER (reported as
+  partial).
+* **What leaves the engine**: finding id, entity type and label, category,
+  severity, confidence, detector id, a masked preview (credentials show at
+  most a public prefix such as `ghp_`; card, Aadhaar, account and IBAN show
+  the last four characters), the structural location label, and whether
+  the location is hidden. Raw values stay in the scan session.
 
 ## 6. Data model
 
@@ -291,6 +339,13 @@ CREATE TABLE license (               -- cache of the verified licence (host-owne
   verified_at  TEXT NOT NULL
 );
 ```
+
+Implemented in `engine/src/airlock_engine/storage/db.py` (migration v1).
+Two deviations from the sketch above: `custom_rules` also has `updated_at`,
+and `allow_list` is unique on `(value_hmac, entity_type)` rather than on the
+hash alone, so a value can be allowed as one type but not another. The engine
+opens the database lazily in the folder passed by the host (`--data-dir`, the
+Tauri app-local-data folder); `--memory-only` keeps rules in memory.
 
 Custom rule patterns are themselves confidential (for example "Project
 Phoenix"). The database file lives in the per-user profile with a user-only

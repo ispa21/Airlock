@@ -8,8 +8,8 @@ done when its exit criteria pass on a real run, not when it compiles.
 | 0 | Architecture and repository setup | Docs (architecture, IPC, security, testing, roadmap); monorepo layout; tooling (uv, ruff, mypy, cargo, vite, vitest); CI | ✅ Done |
 | 1 | Desktop shell + Python engine + IPC | Tauri app spawns the engine, handshake with version check, allowlisted calls, structured errors, crash restart, graceful shutdown, no orphans, network guard, content-free logs, main screen UI, file drop/browse with validation | ✅ Done |
 | 2 | Document extraction | Adapters for PDF, DOCX, XLSX, CSV, TXT, PPTX, then images (OCR), config files and code. Hidden parts extracted. Worker-process isolation. Malformed-file and fuzz suites | ✅ Done |
-| 3 | Detection (next) | Regex detectors with checksums (Email, Phone, PAN, Aadhaar, GSTIN, bank account, IFSC, card, IP, URL); secret detectors; spaCy NER provider; company rules (exact, case-insensitive, normalized, alias, regex); SQLite storage; quality gates | |
-| 4 | Policy | Profiles, entity → action mapping, defaults (credentials → BLOCK), overlap resolution, user overrides | |
+| 3 | Detection | Regex detectors with checksums (Email, Phone, PAN, Aadhaar, GSTIN, bank account, IFSC, card, IP, URL); secret detectors; spaCy NER provider; company rules (exact, case-insensitive, normalized, alias, regex); SQLite storage; quality gates | ✅ Done |
+| 4 | Policy (next) | Profiles, entity → action mapping, defaults (credentials → BLOCK), overlap resolution, user overrides | |
 | 5 | Masking | Redaction, placeholder, typed placeholder, synthetic replacement, generalisation, reversible encrypted vault (DPAPI + AES-GCM), adapter `sanitize` for each format | |
 | 6 | Privacy report | Category summary, deterministic explainable risk, per-finding detector/confidence/action, partial masking, "teach Airlock" flow | |
 | 7 | Verification and export | Re-extract the produced artifact, rescan, residual-value check, raw OOXML sweep, block on failure, safe export, AI-safe copy | |
@@ -76,3 +76,47 @@ Known limits carried forward: legacy binary Office (.doc/.xls/.ppt), RTF,
 ODF and e-mail formats are recognised but not read; OLE-embedded objects
 other than OOXML/PDF are reported as unreadable; OCR is tuned for printed
 Latin script (Devanagari OCR is a V1.x candidate).
+
+## Phase 3 verification log
+
+* Detectors: e-mail, phone (libphonenumber metadata, Indian and
+  international), IPv4/IPv6, URL, date of birth (context-gated), PAN
+  (structure), Aadhaar (Verhoeff), GSTIN (mod-36), IFSC, bank account
+  (context-gated), payment card (Luhn + brand ranges), IBAN (mod-97); secrets:
+  PEM private keys, AWS, GitHub, GitLab, Slack, Stripe, Google, OpenAI,
+  Anthropic, SendGrid, Twilio, npm, Azure keys and SAS, JWTs, bearer tokens,
+  credentials in URLs and connection strings, and secrets assigned to
+  secret-named keys (placeholders such as `${VAR}` or `changeme` ignored).
+* NER: spaCy `en_core_web_sm` behind `NerProvider`, loaded from the bundled
+  package with the network guard on (verified: zero blocked attempts). Maps
+  to PERSON, ORGANIZATION, LOCATION, MONEY, PRODUCT, EVENT with confidence
+  below the deterministic detectors; deterministic matches suppress
+  overlapping NER spans.
+* Company rules: exact, case-insensitive, normalized (case, accents,
+  full-width forms and separators), aliases and regex (per-segment timeout;
+  a rule that times out 3 times is skipped for the rest of the document).
+* Storage: SQLite (WAL, migrations, user-only file) with the schema from
+  ARCHITECTURE §6.2; rules CRUD over `rules.*`; allow-list stored as keyed
+  HMACs only.
+* Quality gates: all gated entity types at recall 1.00 / precision 1.00 on
+  the 1,452-sample tuning corpus (984 labelled values, 468 negatives) **and**
+  on a separately written held-out set of 90 realistic documents (345
+  labelled values). Company-rule gate 1.00/1.00. The corpus values are
+  synthetic, so these numbers measure the detectors' logic, not real-world
+  recall; NER is tracked without a gate.
+* Engine 273 tests (+1 IPv6 case skipped here), host 13 tests, UI 14 tests;
+  ruff, mypy `--strict`, clippy `-D warnings` clean; licence policy test
+  passes with spaCy, phonenumbers and regex.
+* Real app (Linux, Xvfb): scanned a DOCX with PII in the body, a comment and
+  the document properties plus a company term: 12 findings, 5 flagged as
+  hidden, masked previews only; scanned a `.env` (password and AWS key
+  critical). The run found and fixed one bug the corpus had missed (ids
+  followed by a comma, "account no 5707536455, IFSC…", were skipped); a
+  regression test and corpus templates were added. Originals byte-identical;
+  log held only allowlisted events (no values, names, labels or paths);
+  database held no document values; no processes left after closing.
+
+Known limits carried forward: NER is English-only and weaker on Indian names
+(company rules are the guarantee); PAN has no public checksum, so it is
+validated structurally; bank account numbers and dates of birth need a
+context keyword or column header.

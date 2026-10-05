@@ -90,8 +90,7 @@ export function ExtractionReport({ summary }: { summary: ExtractSummary }) {
       )}
 
       <p className="report__foot">
-        Read on this device. Your original file was not changed. Sensitive-data detection is not enabled in this
-        build yet.
+        Read on this device. Your original file was not changed.
       </p>
     </section>
   );

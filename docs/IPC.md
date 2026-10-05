@@ -48,12 +48,28 @@ The host restarts a crashed engine on the next request, at most 3 restarts per
 | `system.shutdown` | no (host only) | `{}` | `{ok: true}`, then the engine stops reading |
 | `document.inspect` | yes | `{path}` | `{file_name, extension, size_bytes, format, format_label, family, support, scannable}` |
 | `document.extract` | yes (cancellable) | `{path, ocr?: bool}` | Content-free summary: `{format, format_label, segment_count, char_count, word_count, parts[{kind, segments, chars, words}], counts{pages, slides, sheets, rows, lines, images_ocr, embedded}, ocr_used, unextracted[{kind, label, count}], unextracted_total, duration_ms}`. Emits `$/progress` with stages `pages`, `slides`, `sheets`, `rows`, `parts`, `ocr`. |
-| `scan.start` | Phase 3 | `{path, profile_id}` | `{scan_id, findings[], summary, risk}` with `$/progress` notifications |
-| `scan.discard` | Phase 3 | `{scan_id}` | `{ok}` |
+| `scan.start` | yes (cancellable) | `{path, ocr?: bool, ner?: bool}` | `{scan_id, extraction, findings[], summary, detection_ms, risk: null}` with `$/progress` stages from extraction, then `prepare` (model load) and `detect` |
+| `scan.discard` | yes | `{scan_id}` | `{ok, discarded}` |
 | `sanitize.run` | Phase 5 | `{scan_id, decisions[]}` | `{artifact_id}` |
 | `verify.run` | Phase 7 | `{artifact_id}` | `{passed, original_count, remaining_count, remaining[]}` |
 | `export.save` / `export.text` | Phase 7 | `{artifact_id, destination}` / `{artifact_id}` | `{ok}` / `{text}` (sanitized only) |
-| `rules.*` | Phase 3 | CRUD for company rules | |
+| `rules.list` | yes | `{}` | `{rules[], categories[], kinds[], actions[]}` |
+| `rules.create` | yes | `{kind, pattern, category_id, aliases?, action?, enabled?}` | `{rule}` |
+| `rules.update` | yes | `{id, ...any of kind/pattern/category_id/aliases/action/enabled}` | `{rule}` |
+| `rules.delete` | yes | `{id}` | `{ok}` |
+| `rules.add_category` | yes | `{label, group, severity}` | `{category}` |
+
+A finding in `scan.start` is `{id, entity_type, entity_label, category,
+severity, confidence, detector, corroborated_by[], rule_id, preview,
+location: {kind, label}, hidden, value_group}`. `preview` is always masked;
+`value_group` groups repeats of the same value within one scan without
+revealing it. `summary` holds totals by severity, category and entity type,
+the hidden count and detector status (`ner`: used, disabled, unavailable or
+partial). At most 2,000 findings are listed per response; the summary
+always counts all of them. Policy actions and risk arrive in Phases 4 and 6.
+
+Rule text is returned only by `rules.*` (it is the user's own input for the
+rules screen). It is never logged and never echoed in error messages.
 
 The UI can only call methods in the host's allowlist
 (`apps/desktop/src-tauri/src/commands.rs`). Lifecycle methods are never

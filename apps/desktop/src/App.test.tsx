@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import type { DropHandlers, Platform } from "./engine/platform";
 import { PlatformProvider } from "./engine/PlatformContext";
-import type { EngineError, ExtractSummary, InspectResult, Progress } from "./engine/types";
+import type { EngineError, ExtractSummary, InspectResult, Progress, ScanResult } from "./engine/types";
 
 const INFO = {
   engine_version: "0.1.0",
@@ -44,6 +44,38 @@ const SUMMARY: ExtractSummary = {
   duration_ms: 1_234,
 };
 
+const RESULT: ScanResult = {
+  scan_id: "scan_test",
+  extraction: SUMMARY,
+  detection_ms: 310,
+  risk: null,
+  findings: [
+    {
+      id: "f1", entity_type: "PAN", entity_label: "PAN (income-tax id)", category: "GOVERNMENT",
+      severity: "high", confidence: 0.97, detector: "regex.pan", corroborated_by: [], rule_id: null,
+      preview: "AB••••••4F", location: { kind: "comment", label: "Comments · paragraph 1" }, hidden: true,
+      value_group: 1,
+    },
+    {
+      id: "f2", entity_type: "EMAIL", entity_label: "E-mail address", category: "PERSONAL",
+      severity: "medium", confidence: 0.98, detector: "regex.email", corroborated_by: [], rule_id: null,
+      preview: "r••••@example.invalid", location: { kind: "body", label: "Body · paragraph 2" }, hidden: false,
+      value_group: 2,
+    },
+  ],
+  summary: {
+    total: 2, listed: 2, distinct_values: 2, hidden: 1, max_severity: "high",
+    by_severity: { critical: 0, high: 1, medium: 1, low: 0 },
+    by_category: [{ category: "GOVERNMENT", count: 1 }, { category: "PERSONAL", count: 1 }],
+    by_entity: [
+      { entity_type: "PAN", label: "PAN (income-tax id)", category: "GOVERNMENT", count: 1 },
+      { entity_type: "EMAIL", label: "E-mail address", category: "PERSONAL", count: 1 },
+    ],
+    detectors: { ner: "used", company_rules: 0, rule_timeouts: 0 },
+    allowed: 0,
+  },
+};
+
 function fakePlatform(overrides: Partial<Platform> = {}) {
   let drop: DropHandlers | undefined;
   const platform: Platform = {
@@ -51,10 +83,11 @@ function fakePlatform(overrides: Partial<Platform> = {}) {
     engineInfo: vi.fn().mockResolvedValue(INFO),
     inspect: vi.fn().mockResolvedValue(DOCX),
     pickFile: vi.fn().mockResolvedValue("C:\\Docs\\Contract.docx"),
-    extract: vi.fn(async (_path: string, _tag: string, onProgress: (p: Progress) => void) => {
+    scan: vi.fn(async (_path: string, _tag: string, onProgress: (p: Progress) => void) => {
       onProgress({ stage: "parts", done: 1, total: 4 });
-      return SUMMARY;
+      return RESULT;
     }),
+    discard: vi.fn().mockResolvedValue(undefined),
     cancel: vi.fn().mockResolvedValue(undefined),
     onFileDrop: vi.fn(async (handlers: DropHandlers) => {
       drop = handlers;
@@ -121,7 +154,7 @@ describe("App", () => {
     await userEvent.click(screen.getByRole("button", { name: "Scan Document" }));
 
     expect(await screen.findByRole("heading", { name: "What Airlock read" })).toBeInTheDocument();
-    expect(platform.extract).toHaveBeenCalledWith("C:\\Docs\\Contract.docx", expect.stringMatching(/^scan-/), expect.any(Function));
+    expect(platform.scan).toHaveBeenCalledWith("C:\\Docs\\Contract.docx", expect.stringMatching(/^scan-/), expect.any(Function));
     expect(screen.getByText("1,520 words · 1 image read with OCR · 1 embedded file")).toBeInTheDocument();
     expect(screen.getByText("Main text")).toBeInTheDocument();
     expect(screen.getByText("1,480 words")).toBeInTheDocument();
@@ -132,13 +165,61 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "Scan Again" })).toBeEnabled();
   });
 
+  it("shows findings with masked previews and where they were hidden", async () => {
+    const { platform } = fakePlatform();
+    renderApp(platform);
+    await userEvent.click(screen.getByRole("button", { name: /drop files here/i }));
+    await screen.findByText("Verified");
+    await userEvent.click(screen.getByRole("button", { name: "Scan Document" }));
+
+    expect(await screen.findByRole("heading", { name: "What Airlock found" })).toBeInTheDocument();
+    expect(screen.getByText("2 findings · 2 distinct values")).toBeInTheDocument();
+    const findings = screen.getByRole("list", { name: "Findings" });
+    expect(findings).toHaveTextContent("PAN (income-tax id)");
+    expect(findings).toHaveTextContent("AB••••••4F");
+    expect(findings).toHaveTextContent("Comments · paragraph 1");
+    expect(findings).toHaveTextContent("Hidden");
+    expect(findings).toHaveTextContent("Pattern + validation · 97%");
+    expect(screen.getByText(/1 finding is in hidden parts of the file/)).toBeInTheDocument();
+  });
+
+  it("asks the engine to forget the previous scan when the file is removed", async () => {
+    const { platform } = fakePlatform();
+    renderApp(platform);
+    await userEvent.click(screen.getByRole("button", { name: /drop files here/i }));
+    await screen.findByText("Verified");
+    await userEvent.click(screen.getByRole("button", { name: "Scan Document" }));
+    await screen.findByRole("heading", { name: "What Airlock found" });
+    await userEvent.click(screen.getByRole("button", { name: "Scan Again" }));
+    await waitFor(() => expect(platform.discard).toHaveBeenCalledWith("scan_test"));
+  });
+
+  it("reports when nothing sensitive was found and when the language model is missing", async () => {
+    const empty: ScanResult = {
+      ...RESULT,
+      findings: [],
+      summary: {
+        ...RESULT.summary, total: 0, listed: 0, distinct_values: 0, hidden: 0, max_severity: null,
+        by_severity: { critical: 0, high: 0, medium: 0, low: 0 }, by_category: [], by_entity: [],
+        detectors: { ner: "unavailable", company_rules: 0, rule_timeouts: 0 },
+      },
+    };
+    const { platform } = fakePlatform({ scan: vi.fn().mockResolvedValue(empty) });
+    renderApp(platform);
+    await userEvent.click(screen.getByRole("button", { name: /drop files here/i }));
+    await screen.findByText("Verified");
+    await userEvent.click(screen.getByRole("button", { name: "Scan Document" }));
+    expect(await screen.findByText("No sensitive data was found by the detectors that ran.")).toBeInTheDocument();
+    expect(screen.getByText(/language model could not be loaded/)).toBeInTheDocument();
+  });
+
   it("shows progress and can cancel a running scan", async () => {
     let reject: (reason: unknown) => void = () => undefined;
     let report: (p: Progress) => void = () => undefined;
     const { platform } = fakePlatform({
-      extract: vi.fn(
+      scan: vi.fn(
         (_path: string, _tag: string, onProgress: (p: Progress) => void) =>
-          new Promise<ExtractSummary>((_resolve, rej) => {
+          new Promise<ScanResult>((_resolve, rej) => {
             reject = rej;
             report = onProgress;
           }),
@@ -167,7 +248,7 @@ describe("App", () => {
       next_step: "Remove the password in the original application, then scan the copy.",
       original_affected: false,
     };
-    const { platform } = fakePlatform({ extract: vi.fn().mockRejectedValue(failure) });
+    const { platform } = fakePlatform({ scan: vi.fn().mockRejectedValue(failure) });
     renderApp(platform);
     await userEvent.click(screen.getByRole("button", { name: /drop files here/i }));
     await screen.findByText("Verified");

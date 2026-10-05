@@ -45,11 +45,25 @@ when they regress below thresholds:
 | Credentials / secrets | ≥ 0.99 | ≥ 0.90 |
 | Checksummed government and financial IDs | ≥ 0.99 | ≥ 0.98 |
 | E-mail, phone, IP, URL | ≥ 0.98 | ≥ 0.95 |
+| Context-gated ids (bank account, date of birth) | ≥ 0.95 | ≥ 0.95 |
 | Company rules (exact / normalized) | 1.00 | 1.00 |
 | NER entities | tracked, no hard gate in V1 | tracked |
 
 False-positive suites include invoice numbers, timestamps, version strings,
 hashes, UUIDs and arithmetic in spreadsheets.
+
+Implemented in `engine/tests/test_quality_gates.py` on two corpora:
+
+* `tests/synthetic/corpus.py`: templates per entity type plus the negative
+  suite. The detectors were tuned against it.
+* `tests/synthetic/heldout.py`: realistic mixed documents (vendor e-mails,
+  `.env` files, log lines, JSON, KYC notes) written separately, scored
+  against the same thresholds to catch over-fitting.
+
+Both use synthetic values, so they test detector logic rather than
+real-world recall. Run `uv run pytest tests/test_quality_gates.py -s` to
+print the per-entity table. Company rules are gated at 1.00/1.00 in
+`tests/test_company_rules.py`.
 
 ## Leak tests (Phase 5+)
 
