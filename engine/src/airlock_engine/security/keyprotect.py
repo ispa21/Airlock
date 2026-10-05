@@ -17,6 +17,7 @@ import secrets
 import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Any, cast
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -105,8 +106,9 @@ class DpapiProtector(KeyProtector):
             buffer = ctypes.create_string_buffer(raw, len(raw))
             return Blob(len(raw), ctypes.cast(buffer, ctypes.POINTER(ctypes.c_char)))
 
-        crypt32 = ctypes.windll.crypt32  # type: ignore[attr-defined]
-        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        # ``windll`` exists only on Windows; typed as Any so mypy agrees on every OS.
+        windll = cast(Any, ctypes).windll
+        crypt32, kernel32 = windll.crypt32, windll.kernel32
         source, entropy, result = blob(data), blob(_DPAPI_ENTROPY), Blob()
         ui_forbidden = 0x1
         fn = crypt32.CryptProtectData if protect else crypt32.CryptUnprotectData

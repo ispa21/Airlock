@@ -16,7 +16,7 @@ import sys
 import time
 from multiprocessing.connection import Connection
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 #: Test-only operations (crash, hang, allocate) are enabled by this variable.
 TEST_OPS_ENV = "AIRLOCK_ENGINE_TEST_WORKER_OPS"
@@ -153,7 +153,7 @@ def _test_op(op: object, job: dict[str, Any]) -> Any:
             # crashes for real, like a faulty native parser would.
             import faulthandler
 
-            faulthandler._sigsegv()
+            cast(Any, faulthandler)._sigsegv()  # private CPython test helper
         import ctypes
 
         ctypes.string_at(0)
