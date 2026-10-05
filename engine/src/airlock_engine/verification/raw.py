@@ -17,7 +17,7 @@ import re
 import zipfile
 from collections.abc import Iterator, Sequence
 
-from airlock_engine.masking.sweep import Sweeper
+from airlock_engine.masking.sweep import Sweeper, needs_edges
 
 #: Limits for the copy's own package (it was written by Airlock, but a
 #: verifier must never be the weak point).
@@ -94,8 +94,13 @@ def outside(
 def raw_hits(
     data: bytes, values: Sequence[str], replacements: Sequence[str] = ()
 ) -> list[tuple[int, str]]:
-    """(index of the value, part label) for every protected value found."""
-    sweeper = Sweeper((v, str(i)) for i, v in enumerate(values) if v)
+    """(index of the value, part label) for every protected value found.
+
+    Short plain words ("CC", "Ravi") are left to the check of the extracted
+    text: in raw markup they collide with formatting tokens (a colour shade
+    ``w:themeShade="CC"``), so a match would say nothing about content.
+    """
+    sweeper = Sweeper((v, str(i)) for i, v in enumerate(values) if v and not needs_edges(v))
     if not sweeper:
         return []
     inserted = Sweeper((r, r) for r in replacements if len(r) >= 2)

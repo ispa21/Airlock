@@ -32,18 +32,20 @@ runtime dependency of the engine is GPL, AGPL, LGPL or SSPL licensed.
 | regex | Apache-2.0 AND CNRI-Python | Company-rule patterns with a per-match timeout (ReDoS-safe) |
 | cryptography | Apache-2.0 OR BSD-3-Clause | AES-256-GCM for the placeholder vault and key wrapping (Phase 5) |
 | cffi, pycparser | MIT-0 / BSD-3-Clause | cryptography runtime |
-| reportlab | BSD | Rebuilds safe PDFs from masked text (Phase 5). Airlock uses only the bundled **Bitstream Vera** fonts (Vera licence, permissive). reportlab also ships the *DarkGarden* font under the GPL: the Phase 8 bundle must exclude `reportlab/fonts/DarkGarden*`. |
+| reportlab | BSD | Rebuilds safe PDFs from masked text (Phase 5). Only the **Bitstream Vera** fonts (Vera licence, permissive) are bundled; the GPL *DarkGarden* font and the other sample fonts are left out of the frozen engine, and `scripts/package.py` fails a build that contains them. |
+| opencv-python-headless (bundled libraries) | Apache-2.0; FFmpeg plugin LGPL | The wheel carries an FFmpeg video plugin (LGPL) that Airlock never loads. On Windows it is a separate DLL (`opencv_videoio_ffmpeg*.dll`) and is left out of the bundle (the build fails if it is present). Linux wheels link FFmpeg into `cv2` itself, so a Linux test build contains it; Linux is not a shipped platform. |
 
 MPL-2.0 is a file-level licence. Distributing unmodified copies inside a
 proprietary product is permitted, provided the licence notice and source
-availability are preserved. The installer's notices file must carry these
-notices (Phase 8).
+availability are preserved. The installer's `THIRD_PARTY_NOTICES.txt` carries
+these notices.
 
 ## Desktop (Rust / TypeScript)
 
 | Component | Licence |
 | --- | --- |
 | Tauri 2, tauri-plugin-dialog, wry, tao | Apache-2.0 / MIT |
+| sha2 | Apache-2.0 / MIT (engine integrity check) |
 
 Windows DPAPI is called through Python's standard `ctypes` (no pywin32).
 | serde, serde_json | Apache-2.0 / MIT |
@@ -56,5 +58,15 @@ python-docx (MIT), openpyxl (MIT) and python-pptx (MIT) build test fixtures
 (reportlab is now a runtime dependency); types-regex (Apache-2.0) provides type stubs; pytest (MIT), ruff (MIT), mypy (MIT), Vite (MIT), Vitest (MIT)
 and Testing Library (MIT) are used for development and CI.
 
-A complete notices file listing every transitive dependency with its licence
-text is generated for the installer in Phase 8.
+## Packaging (Phase 8)
+
+| Component | Licence | Note |
+| --- | --- | --- |
+| PyInstaller (build only) | GPL-2.0-or-later with the bootloader exception | Freezes the engine. The bootloader inside `airlock-engine.exe` is covered by the exception, which allows shipping the result under any licence. PyInstaller itself is a build tool and is not shipped. |
+| NSIS (via Tauri) | zlib/libpng | Installer runtime. |
+| Microsoft Edge WebView2 Runtime | Microsoft Software License Terms | Installed by Microsoft's bootstrapper or offline installer when missing. |
+
+`scripts/notices.py` writes `THIRD_PARTY_NOTICES.txt` into every installer:
+each shipped Python package, Rust crate and npm package with its licence and
+the licence texts it carries (about 300 components). It fails the build if a
+Rust or npm component offers only a copyleft licence.

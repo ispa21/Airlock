@@ -805,6 +805,20 @@ describe("App", () => {
     expect(await screen.findByText("0 values")).toBeInTheDocument();
   });
 
+  it("explains why the engine cannot start", async () => {
+    const tampered = {
+      kind: "engine_tampered",
+      message: "Airlock's privacy engine has changed since it was installed, so Airlock will not run it.",
+      next_step: "Reinstall Airlock from the original installer. Your files have not been touched.",
+      original_affected: false,
+    };
+    const { platform } = fakePlatform({ engineInfo: vi.fn().mockRejectedValue(tampered) });
+    renderApp(platform);
+    expect(await screen.findByRole("alert")).toHaveTextContent(tampered.message);
+    expect(screen.getByRole("alert")).toHaveTextContent("Reinstall Airlock from the original installer.");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("Your original file was not changed.");
+  });
+
   it("reports an unavailable engine and retries on request", async () => {
     const engineInfo = vi
       .fn()

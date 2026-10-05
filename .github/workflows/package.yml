@@ -1,0 +1,93 @@
+name: Package
+
+# Builds the Windows installers (with the WebView2 bootstrapper, and with
+# WebView2 inside for offline machines), then installs one on the runner,
+# checks it and uninstalls it. Signing is used when the repository has the
+# WINDOWS_CERTIFICATE (base64 PFX) and WINDOWS_CERTIFICATE_PASSWORD secrets.
+
+on:
+  push:
+    # Branch pushes run only when packaging files change; tags always build.
+    branches: ["**"]
+    tags: ["v*"]
+    paths:
+      - "engine/packaging/**"
+      - "engine/pyproject.toml"
+      - "engine/uv.lock"
+      - "scripts/**"
+      - "packaging/**"
+      - "apps/desktop/src-tauri/**"
+      - ".github/workflows/package.yml"
+  pull_request:
+    paths:
+      - "engine/packaging/**"
+      - "engine/pyproject.toml"
+      - "engine/uv.lock"
+      - "scripts/**"
+      - "packaging/**"
+      - "apps/desktop/src-tauri/**"
+      - ".github/workflows/package.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows installer
+    runs-on: windows-latest
+    timeout-minutes: 120
+    env:
+      HAS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Code-signing certificate
+        if: env.HAS_CERTIFICATE == 'true'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP "airlock-signing.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $signtool = (Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName -Descending | Select-Object -First 1).FullName
+          "AIRLOCK_CERT_PASSWORD=$env:WINDOWS_CERTIFICATE_PASSWORD" >> $env:GITHUB_ENV
+          "AIRLOCK_SIGN_COMMAND=`"$signtool`" sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /f `"$pfx`" /p %AIRLOCK_CERT_PASSWORD% {file}" >> $env:GITHUB_ENV
+
+      - name: Unsigned build
+        if: env.HAS_CERTIFICATE != 'true'
+        run: echo "::warning::No code-signing certificate configured; the installers are unsigned."
+
+      - name: Engine, smoke test, app and installers
+        run: python scripts/package.py --offline-webview
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: airlock-windows-installers
+          path: apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+
+      - name: Install, check and uninstall
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe |
+            Where-Object { $_.Name -notmatch "offline" } | Select-Object -First 1
+          ./packaging/windows/installer-smoke.ps1 -Installer $installer.FullName

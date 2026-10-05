@@ -183,7 +183,7 @@ which is never shipped.
 | 3 ✅ | spacy + `en_core_web_sm` (bundled), phonenumbers, regex | — |
 | 5 ✅ | cryptography (AES-GCM), reportlab (rebuilt PDFs); DPAPI through `ctypes` (no pywin32) | — |
 | 7 | — | — |
-| 8 | pyinstaller | NSIS via tauri-bundler, code-signing tooling |
+| 8 ✅ | pyinstaller (build-only `package` group) | NSIS via tauri-bundler, sha2 (engine integrity), signtool when configured. See [PACKAGING.md](PACKAGING.md) |
 | 10 | — | ed25519-dalek, base64 |
 
 Every dependency must work offline and be bundleable. Licences are checked for

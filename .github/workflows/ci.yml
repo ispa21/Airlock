@@ -30,6 +30,8 @@ jobs:
       - run: uv sync --locked
       - run: uv run ruff check .
       - run: uv run ruff format --check .
+      - name: Lint the packaging scripts
+        run: uv run ruff check --config pyproject.toml ../scripts && uv run ruff format --check ../scripts
       - run: uv run mypy
       - run: uv run pytest
       - name: Engine suite with no network at all

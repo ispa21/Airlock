@@ -13,7 +13,7 @@ done when its exit criteria pass on a real run, not when it compiles.
 | 5 | Masking | Redaction, placeholder, typed placeholder, synthetic replacement, generalisation, reversible encrypted vault (DPAPI + AES-GCM), adapter `sanitize` for each format | ✅ Done |
 | 6 | Privacy report | Category summary, deterministic explainable risk, per-finding detector/confidence/action, partial masking, "teach Airlock" flow | ✅ Done |
 | 7 | Verification and export | Re-extract the produced artifact, rescan, residual-value check, raw OOXML sweep, block on failure, safe export, AI-safe copy | ✅ Done |
-| 8 | Windows packaging (next) | PyInstaller onedir engine, NSIS installer, WebView2 strategy, code signing, firewall rule option, tauri-driver E2E on Windows, clean-VM DoD run | |
+| 8 | Windows packaging (in progress) | PyInstaller onedir engine, NSIS installer, WebView2 strategy, code signing, firewall rule option, tauri-driver E2E on Windows, clean-VM DoD run | |
 | 9 | ~~Right-click integration~~ | Skipped by decision (2026-10-05): files are opened by drag-and-drop or Browse in every surface | ⏭ Skipped |
 | 10 | Lifetime licensing | Ed25519 signed licences, offline import, online activation (isolated from the engine), local verification | |
 | 11 | Browser extension foundation | MV3 extension for Chrome and Edge. Uses the local app's engine through native messaging when it is installed, otherwise the in-browser engine from Phase 14 | |
@@ -308,3 +308,36 @@ restoring AI responses (Phase 12).
   account the user had marked "not sensitive" in Phase 6. The log held
   `verify_completed`, `export_completed` and `export_text` with no path or
   value; the work folder was empty after closing; originals unchanged.
+
+## Phase 8 verification log (in progress)
+
+* Frozen engine: PyInstaller onedir (`engine/packaging/airlock-engine.spec`)
+  with the spaCy English model, OCR models, PDFium and the Vera fonts; spaCy
+  languages other than those its registry imports are left out; ReportLab's
+  GPL font and OpenCV's FFmpeg plugin (Windows) are excluded and the build
+  fails if they reappear. Built here on Linux (553 MB folder): the stdio
+  smoke test passed (language model, OCR on a picture, PDF rebuild, every
+  copy verified).
+* The smoke test found two real issues that unit tests had not: the frozen
+  build needed spaCy's CJK/Thai/Vietnamese tokenizer modules (imported by its
+  registry at load), and with the language model on, a two-letter comment
+  author ("CC") matched a colour shade in `styles.xml` during the stored-bytes
+  search; short plain words are now checked in the extracted text only. A
+  logging gap also surfaced: exception class names were silently dropped by
+  the safe logger; they are now kept (names only, never messages).
+* Installer: NSIS with a per-user / all-users choice, WebView2 bootstrapper by
+  default and an offline variant, the frozen engine and
+  `THIRD_PARTY_NOTICES.txt` (about 300 components with licence texts) as
+  resources; all-users installs add firewall rules that block the engine's
+  network traffic, removed on uninstall.
+* Integrity: the release host checks the engine's SHA-256 before every
+  start. Verified here with a release build: the bundled engine started and
+  scanned the test document (same results as development); after changing one
+  byte of the engine the app refused it ("engine_tampered", shown with
+  "Reinstall Airlock") and no engine process ran. Closing the app left no
+  engine process.
+* Signing is wired (`AIRLOCK_SIGN_COMMAND`, CI secrets) but needs a
+  certificate; builds without one are unsigned and say so.
+* Remaining: the Windows `Package` workflow run (build, install, check,
+  uninstall on a fresh runner) and the clean-VM check in
+  [PACKAGING.md](PACKAGING.md).

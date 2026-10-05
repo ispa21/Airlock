@@ -185,6 +185,9 @@ def test_raw_search_reads_every_part_and_embedded_packages() -> None:
         (0, "word/settings.xml"),
         (1, "word/embeddings/Microsoft_Word_Document.docx/word/document.xml"),
     ]
+    # Short plain words are checked in the extracted text, not in markup.
+    styles = _zip({"word/styles.xml": b'<w:shd w:themeFillShade="CC"/>'})
+    assert raw_hits(styles, ["CC"]) == []
 
 
 def test_raw_search_on_plain_and_utf16_files() -> None:

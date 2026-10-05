@@ -45,10 +45,33 @@ const PROXY_VARS: &[&str] = &[
     "no_proxy",
 ];
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct LaunchSpec {
     pub program: PathBuf,
     pub args: Vec<String>,
+    /// SHA-256 the program must have (release builds). Checked before every start.
+    pub expected_sha256: Option<String>,
+}
+
+/// SHA-256 of a file, as lowercase hex.
+fn sha256_file(path: &std::path::Path) -> std::io::Result<String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 1 << 16];
+    loop {
+        let n = file.read(&mut buffer)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buffer[..n]);
+    }
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect())
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -84,6 +107,14 @@ impl EngineError {
             "engine_missing",
             "Airlock could not start its local privacy engine because it is missing.",
             "Reinstall Airlock. Your files have not been touched.",
+        )
+    }
+
+    pub fn engine_tampered() -> Self {
+        Self::new(
+            "engine_tampered",
+            "Airlock's privacy engine has changed since it was installed, so Airlock will not run it.",
+            "Reinstall Airlock from the original installer. Your files have not been touched.",
         )
     }
 
@@ -370,6 +401,19 @@ impl Engine {
     }
 
     fn spawn(&self) -> Result<Running, EngineError> {
+        if let Some(expected) = &self.spec.expected_sha256 {
+            match sha256_file(&self.spec.program) {
+                Ok(actual) if actual == *expected => {}
+                Ok(_) => {
+                    self.log.host_event("engine_integrity_failed", &[]);
+                    return Err(EngineError::engine_tampered());
+                }
+                Err(_) => {
+                    self.log.host_event("engine_spawn_failed", &[]);
+                    return Err(EngineError::engine_missing());
+                }
+            }
+        }
         let mut cmd = Command::new(&self.spec.program);
         cmd.args(&self.spec.args)
             .stdin(Stdio::piped())
@@ -563,6 +607,7 @@ mod tests {
         LaunchSpec {
             program: python.to_path_buf(),
             args: vec!["-c".into(), script.into()],
+            ..Default::default()
         }
     }
 
@@ -575,6 +620,7 @@ mod tests {
         let spec = LaunchSpec {
             program: python,
             args: vec!["-m".into(), "airlock_engine".into()],
+            ..Default::default()
         };
         let (engine, _) = engine_with(spec);
         let info = engine.info().expect("engine starts");
@@ -717,10 +763,39 @@ for line in sys.stdin:
         let spec = LaunchSpec {
             program: PathBuf::from("/nonexistent/airlock-engine"),
             args: vec![],
+            ..Default::default()
         };
         let (engine, _) = engine_with(spec);
         let err = engine.info().unwrap_err();
         assert_eq!(err.kind, "engine_missing");
+        assert!(err.next_step.unwrap().contains("Reinstall"));
+    }
+
+    #[test]
+    fn only_the_engine_that_was_shipped_is_started() {
+        let Some(python) = venv_python() else {
+            eprintln!("skipping: engine venv not found (run `uv sync` in engine/)");
+            return;
+        };
+        let genuine = sha256_file(&python).expect("hash the interpreter");
+        assert_eq!(genuine.len(), 64);
+        let spec = LaunchSpec {
+            program: python.clone(),
+            args: vec!["-m".into(), "airlock_engine".into()],
+            expected_sha256: Some(genuine),
+        };
+        let (engine, _) = engine_with(spec);
+        assert!(engine.info().is_ok());
+        engine.shutdown();
+
+        let spec = LaunchSpec {
+            program: python,
+            args: vec!["-m".into(), "airlock_engine".into()],
+            expected_sha256: Some("0".repeat(64)),
+        };
+        let (engine, _) = engine_with(spec);
+        let err = engine.info().unwrap_err();
+        assert_eq!(err.kind, "engine_tampered");
         assert!(err.next_step.unwrap().contains("Reinstall"));
     }
 

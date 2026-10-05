@@ -46,7 +46,11 @@
     ],
     "windows": {
       "webviewInstallMode": { "type": "embedBootstrapper" },
-      "nsis": { "installMode": "currentUser" }
+      "nsis": {
+        "installMode": "both",
+        "installerHooks": "./windows/hooks.nsh",
+        "displayLanguageSelector": false
+      }
     }
   }
 }

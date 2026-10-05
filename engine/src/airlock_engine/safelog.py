@@ -18,6 +18,8 @@ import time
 from typing import IO, Any, Final
 
 _TOKEN = re.compile(r"^[a-z0-9_.\-]{1,64}$")
+#: Python class names ("OSError", "RegistryError") are code, not content.
+_CLASS_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 
 # field -> allowed python types
 _FIELDS: Final[dict[str, tuple[type, ...]]] = {
@@ -95,7 +97,8 @@ def _is_allowed(key: str, value: Any) -> bool:
     if types is None or isinstance(value, bool) or not isinstance(value, types):
         return False
     if isinstance(value, str):
-        return bool(_TOKEN.match(value))
+        pattern = _CLASS_NAME if key == "exception_type" else _TOKEN
+        return bool(pattern.match(value))
     return True
 
 

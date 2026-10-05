@@ -421,6 +421,7 @@ export function App() {
               onClear={clear}
             />
 
+            {engine.state === "unavailable" && !error && <ErrorNotice error={engine.error} aboutFile={false} />}
             {error && <ErrorNotice error={error} />}
             {notice && !error && <p className="inline-note">{notice}</p>}
 

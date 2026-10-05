@@ -45,6 +45,8 @@ fn base_launch_spec(app: &AppHandle) -> LaunchSpec {
     LaunchSpec {
         program,
         args: vec!["--log-level".into(), "info".into()],
+        // Set by the release build (build.rs); the host runs only that engine.
+        expected_sha256: option_env!("AIRLOCK_ENGINE_SHA256").map(str::to_owned),
     }
 }
 
@@ -60,11 +62,16 @@ fn dev_launch_spec() -> Option<LaunchSpec> {
         return Some(LaunchSpec {
             program: python.into(),
             args,
+            expected_sha256: None,
         });
     }
     let venv = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../engine/.venv");
     [venv.join("Scripts/python.exe"), venv.join("bin/python")]
         .into_iter()
         .find(|p| p.exists())
-        .map(|program| LaunchSpec { program, args })
+        .map(|program| LaunchSpec {
+            program,
+            args,
+            expected_sha256: None,
+        })
 }

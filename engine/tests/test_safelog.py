@@ -54,3 +54,13 @@ def test_level_filtering() -> None:
     logger.info("scan_started")
     logger.warning("scan_failed")
     assert [r["event"] for r in _lines(buf)] == ["scan_failed"]
+
+
+def test_exception_class_names_are_kept_but_messages_are_not() -> None:
+    stream = io.StringIO()
+    logger = SafeLogger(stream)
+    logger.warning("ner_unavailable", exception_type="RegistryError")
+    logger.warning("ner_unavailable", exception_type="Error: priya@example.invalid")
+    first, second = (json.loads(line) for line in stream.getvalue().splitlines())
+    assert first["exception_type"] == "RegistryError"
+    assert "exception_type" not in second and second["dropped_fields"] == 1
