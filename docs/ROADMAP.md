@@ -14,10 +14,28 @@ done when its exit criteria pass on a real run, not when it compiles.
 | 6 | Privacy report | Category summary, deterministic explainable risk, per-finding detector/confidence/action, partial masking, "teach Airlock" flow | ✅ Done |
 | 7 | Verification and export (next) | Re-extract the produced artifact, rescan, residual-value check, raw OOXML sweep, block on failure, safe export, AI-safe copy | |
 | 8 | Windows packaging | PyInstaller onedir engine, NSIS installer, WebView2 strategy, code signing, firewall rule option, tauri-driver E2E on Windows, clean-VM DoD run | |
-| 9 | Right-click integration | "Protect with Airlock" verb (HKCU), single-instance hand-off of the file path | |
+| 9 | ~~Right-click integration~~ | Skipped by decision (2026-10-05): files are opened by drag-and-drop or Browse in every surface | ⏭ Skipped |
 | 10 | Lifetime licensing | Ed25519 signed licences, offline import, online activation (isolated from the engine), local verification | |
-| 11 | Browser extension foundation | Native-messaging host, named-pipe agent channel, MV3 extension skeleton for Chrome and Edge | |
+| 11 | Browser extension foundation | MV3 extension for Chrome and Edge. Uses the local app's engine through native messaging when it is installed, otherwise the in-browser engine from Phase 14 | |
 | 12 | Reversible masking & response restoration (queued) | Session/conversation-scoped mapping vault, stable `PERSON_001`-style pseudonyms, local restoration of AI responses (review before restore), outbound privacy check, prompt and clipboard protection, provider-neutral AI adapter layer. Requirements: [REVERSIBLE_MASKING.md](REVERSIBLE_MASKING.md) | |
+| 13 | Local web app | The installed engine serves the same UI to the user's own browser on a loopback address: 127.0.0.1 only, random port, per-launch secret, Host and Origin checks, the same method allowlist as the desktop host. No document leaves the computer | |
+| 14 | Web app (in the browser) | A static website where the engine runs inside the user's browser (WebAssembly in a Web Worker). Files are never uploaded; the site works offline after the first visit. Measure and document what is lighter than the desktop app (language model, OCR, very large files) | |
+
+## Delivery surfaces
+
+Airlock ships as four surfaces. In all of them documents are processed on the
+user's own device and are never uploaded; there is no cloud processing.
+
+| Surface | Where the engine runs | How the UI reaches it | Phase |
+| --- | --- | --- | --- |
+| Local app (desktop) | Bundled Python engine, child process of the app | Tauri host, stdio JSON-RPC (no socket) | 1-8 (1-6 done) |
+| Local web app | Same installed engine | User's browser → loopback HTTP with a per-launch secret | 13 |
+| Web app | Inside the user's browser (WebAssembly, Web Worker) | In-page messages; the website only serves static files | 14 |
+| Browser extension | Local app's engine (native messaging) or the in-browser engine | Extension pages | 11 |
+
+The React UI is shared: each surface supplies its own `Platform`
+implementation (`apps/desktop/src/engine/platform.ts`), as the desktop app
+and the browser preview already do. Order after Phase 7 can be changed.
 
 ## Phase 1 verification log
 

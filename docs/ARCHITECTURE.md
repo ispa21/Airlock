@@ -53,8 +53,7 @@ Two processes, no servers, no microservices:
 
 * **Host (Rust/Tauri 2).** Owns the window, starts and supervises the engine,
   exposes a small allowlist of engine methods to the UI, persists a
-  content-free log, and (later) handles licensing, the Windows shell
-  integration and the single-instance file hand-off.
+  content-free log, and (later) handles licensing.
 * **Engine (Python 3.11, frozen with PyInstaller).** Everything that touches
   document content: extraction, detection, policy, masking, verification,
   storage. It has no network access and no listening sockets.
@@ -68,6 +67,23 @@ The document stack (PDF, OOXML), OCR and NER ecosystems are strongest in
 Python, and the PRD calls for it. Python stays behind a narrow process
 boundary, so a crash or hostile document in a native parser cannot take the UI
 down, and the engine can be swapped component by component.
+
+### Delivery surfaces
+
+The desktop app above is one of four surfaces (ROADMAP.md, "Delivery
+surfaces"): the **local web app** (Phase 13) runs the same engine and serves
+the same UI to the user's browser on a loopback address; the **web app**
+(Phase 14) runs the engine inside the browser, so the website only serves
+static files and never receives a document; the **browser extension**
+(Phase 11) uses either engine. Nothing is processed in the cloud in any of
+them.
+
+The local web app is the one place Airlock listens on a socket, and only for
+that surface. It binds to 127.0.0.1 on a random port, requires a secret
+generated at each launch (handed to the browser in the URL fragment, never
+logged), rejects requests whose Host or Origin is not its own (DNS rebinding,
+other websites), sends no CORS headers, and exposes the same method allowlist
+as the desktop host. The desktop app keeps stdio, for the reasons below.
 
 ### Why stdio JSON-RPC instead of a local HTTP server
 
@@ -168,7 +184,6 @@ which is never shipped.
 | 5 ✅ | cryptography (AES-GCM), reportlab (rebuilt PDFs); DPAPI through `ctypes` (no pywin32) | — |
 | 7 | — | — |
 | 8 | pyinstaller | NSIS via tauri-bundler, code-signing tooling |
-| 9 | — | tauri-plugin-single-instance |
 | 10 | — | ed25519-dalek, base64 |
 
 Every dependency must work offline and be bundleable. Licences are checked for
