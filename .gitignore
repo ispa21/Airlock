@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+engine/build/
+engine/dist/
+
+# Node / frontend
+node_modules/
+apps/desktop/dist/
+apps/desktop/test-results/
+apps/desktop/playwright-report/
+
+# Rust / Tauri
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/schemas/
+apps/desktop/src-tauri/resources/engine/
+
+# Never commit signing material or real documents
+*.pem
+*.key
+*.pfx
+licensing/keys/
+tests/fixtures/private/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json

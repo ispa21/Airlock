@@ -1,0 +1,64 @@
+/* Airlock design tokens. Calm, high-contrast, quietly premium. */
+:root {
+  --font-sans: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Segoe UI Variable Display", "Segoe UI Variable", "Segoe UI", system-ui,
+    -apple-system, "Helvetica Neue", Arial, sans-serif;
+
+  --bg: #f5f5f2;
+  --bg-glow: rgba(15, 159, 138, 0.07);
+  --surface: #ffffff;
+  --surface-2: #fafaf8;
+  --ink: #0b0d12;
+  --ink-2: #3b404a;
+  --muted: #6e737d;
+  --line: #e4e4df;
+  --line-strong: #cfcfc8;
+  --accent: #0f9f8a;
+  --accent-ink: #0b7d6d;
+  --accent-tint: rgba(15, 159, 138, 0.08);
+  --ok: #129a6f;
+  --wait: #c98a12;
+  --bad: #c8372d;
+  --bad-tint: rgba(200, 55, 45, 0.06);
+  --mark-bg: #0b0d12;
+  --mark-fg: #f2f4f7;
+
+  --button-bg: #0b0d12;
+  --button-fg: #ffffff;
+  --button-hover: #23272f;
+
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 18px;
+  --shadow-card: 0 1px 2px rgba(11, 13, 18, 0.04), 0 8px 24px -12px rgba(11, 13, 18, 0.12);
+  --focus: 0 0 0 3px rgba(15, 159, 138, 0.35);
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b0d10;
+    --bg-glow: rgba(45, 212, 191, 0.06);
+    --surface: #12151a;
+    --surface-2: #161a20;
+    --ink: #f2f3f5;
+    --ink-2: #c4c8cf;
+    --muted: #8a909a;
+    --line: #232830;
+    --line-strong: #323844;
+    --accent: #2dd4bf;
+    --accent-ink: #5eead4;
+    --accent-tint: rgba(45, 212, 191, 0.08);
+    --ok: #34d399;
+    --wait: #fbbf24;
+    --bad: #f87171;
+    --bad-tint: rgba(248, 113, 113, 0.08);
+    --mark-bg: #f2f3f5;
+    --mark-fg: #0b0d10;
+    --button-bg: #f2f3f5;
+    --button-fg: #0b0d10;
+    --button-hover: #dcdfe4;
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 12px 32px -16px rgba(0, 0, 0, 0.6);
+  }
+}
