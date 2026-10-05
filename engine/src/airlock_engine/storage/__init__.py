@@ -12,8 +12,15 @@ from airlock_engine.storage.profiles import ProfileError, ProfileNotFound, Profi
 from airlock_engine.storage.rules import AllowList, RuleStore
 
 __all__ = [
-    "AllowList", "Database", "ProfileError", "ProfileNotFound", "ProfileStore", "RuleStore",
-    "Storage", "StorageError", "default_data_dir",
+    "AllowList",
+    "Database",
+    "ProfileError",
+    "ProfileNotFound",
+    "ProfileStore",
+    "RuleStore",
+    "Storage",
+    "StorageError",
+    "default_data_dir",
 ]
 
 APP_ID = "com.airlock.desktop"

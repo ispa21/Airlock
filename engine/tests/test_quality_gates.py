@@ -98,7 +98,8 @@ def test_false_positive_suite_is_clean() -> None:
     for entity_type, count in noisy.items():
         quality = BUILTIN_ENTITIES[entity_type].quality
         assert quality not in (QualityClass.SECRET, QualityClass.CHECKSUMMED_ID), (
-            entity_type, count,
+            entity_type,
+            count,
         )
 
 
@@ -109,9 +110,7 @@ def test_heldout_documents_meet_the_same_gates() -> None:
 
     tp, fp, fn = evaluate(heldout())
     for entity_type in set(tp) | set(fp) | set(fn):
-        min_recall, min_precision = GATES.get(
-            BUILTIN_ENTITIES[entity_type].quality, (0.0, 0.0)
-        )
+        min_recall, min_precision = GATES.get(BUILTIN_ENTITIES[entity_type].quality, (0.0, 0.0))
         a, b, c = tp[entity_type], fp[entity_type], fn[entity_type]
         recall = a / (a + c) if a + c else 1.0
         precision = a / (a + b) if a + b else 1.0

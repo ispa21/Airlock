@@ -22,14 +22,32 @@ LABELS = {e.id: e.label for e in BUILTIN_ENTITIES.values()}
 LABELS["INTERNAL_PROJECT"] = "Internal project"
 
 
-def det(entity_type: str, start: int = 0, end: int = 5, *, seg: int = 0, conf: float = 0.95,
-        detector: str = "regex.x", rule_id: str = "") -> Detected:
-    severity = BUILTIN_ENTITIES[entity_type].severity if entity_type in BUILTIN_ENTITIES \
-        else Severity.HIGH
-    return Detected(DetectionResult(
-        entity_type, SensitiveValue("x" * (end - start)), seg, start, end, conf,
-        detector, rule_id or detector, severity,
-    ))
+def det(
+    entity_type: str,
+    start: int = 0,
+    end: int = 5,
+    *,
+    seg: int = 0,
+    conf: float = 0.95,
+    detector: str = "regex.x",
+    rule_id: str = "",
+) -> Detected:
+    severity = (
+        BUILTIN_ENTITIES[entity_type].severity if entity_type in BUILTIN_ENTITIES else Severity.HIGH
+    )
+    return Detected(
+        DetectionResult(
+            entity_type,
+            SensitiveValue("x" * (end - start)),
+            seg,
+            start,
+            end,
+            conf,
+            detector,
+            rule_id or detector,
+            severity,
+        )
+    )
 
 
 def engine(**kw: object) -> PolicyEngine:
@@ -55,10 +73,20 @@ def test_credentials_are_blocked_by_every_builtin_profile(profile) -> None:  # t
 
 def test_company_default_table() -> None:
     expected = {
-        "EMAIL": "MASK", "PHONE": "MASK", "PAN": "MASK", "AADHAAR": "MASK",
-        "CREDIT_CARD": "MASK", "BANK_ACCOUNT": "MASK", "DATE_OF_BIRTH": "GENERALIZE",
-        "LOCATION": "ALLOW", "MONEY": "ALLOW", "IFSC": "ALLOW", "URL": "MASK",
-        "IP_ADDRESS": "MASK", "PERSON": "MASK", "ORGANIZATION": "MASK",
+        "EMAIL": "MASK",
+        "PHONE": "MASK",
+        "PAN": "MASK",
+        "AADHAAR": "MASK",
+        "CREDIT_CARD": "MASK",
+        "BANK_ACCOUNT": "MASK",
+        "DATE_OF_BIRTH": "GENERALIZE",
+        "LOCATION": "ALLOW",
+        "MONEY": "ALLOW",
+        "IFSC": "ALLOW",
+        "URL": "MASK",
+        "IP_ADDRESS": "MASK",
+        "PERSON": "MASK",
+        "ORGANIZATION": "MASK",
     }
     for entity_type, action in expected.items():
         assert actions([det(entity_type, conf=0.9)]) == [action], entity_type
@@ -117,8 +145,9 @@ def test_overlaps_form_one_region_with_the_strongest_action() -> None:
     secret = det("CONNECTION_STRING", 20, 30)
     ip = det("IP_ADDRESS", 35, 45)
     d = decide([url, secret, ip])
-    assert d.regions == [Region(0, 0, 60, Action.BLOCK, "f2", ("f1", "f2", "f3"),
-                                "typed_placeholder")]
+    assert d.regions == [
+        Region(0, 0, 60, Action.BLOCK, "f2", ("f1", "f2", "f3"), "typed_placeholder")
+    ]
     by_id = {f.finding_id: f for f in d.findings}
     assert by_id["f2"].covered_by is None
     assert by_id["f1"].covered_by == "f2" and by_id["f1"].effective_action is Action.BLOCK
@@ -132,10 +161,15 @@ def test_partial_and_chained_overlaps_merge_into_the_union() -> None:
 
 
 def test_non_overlapping_findings_stay_separate_and_allow_makes_no_region() -> None:
-    d = decide([det("EMAIL", 0, 5), det("EMAIL", 5, 10), det("LOCATION", 20, 25, conf=0.9),
-                det("EMAIL", 0, 5, seg=1)])
-    assert [(r.segment_id, r.start, r.end) for r in d.regions] == [(0, 0, 5), (0, 5, 10),
-                                                                  (1, 0, 5)]
+    d = decide(
+        [
+            det("EMAIL", 0, 5),
+            det("EMAIL", 5, 10),
+            det("LOCATION", 20, 25, conf=0.9),
+            det("EMAIL", 0, 5, seg=1),
+        ]
+    )
+    assert [(r.segment_id, r.start, r.end) for r in d.regions] == [(0, 0, 5), (0, 5, 10), (1, 0, 5)]
     assert d.counts()["ALLOW"] == 1
 
 
@@ -147,8 +181,9 @@ def test_allowed_finding_inside_masked_one_is_covered() -> None:
 
 
 def test_overrides_win_and_are_marked() -> None:
-    d = decide([det("EMAIL"), det("API_KEY", 10, 20)],
-               overrides={"f1": Action.ALLOW, "f2": Action.REDACT})
+    d = decide(
+        [det("EMAIL"), det("API_KEY", 10, 20)], overrides={"f1": Action.ALLOW, "f2": Action.REDACT}
+    )
     assert [f.action for f in d.findings] == [Action.ALLOW, Action.REDACT]
     assert all(f.overridden and f.policy_reason == "Changed by you." for f in d.findings)
     assert d.blocked == 0
@@ -160,4 +195,6 @@ def test_resolution_order_on_profile() -> None:
     assert p.resolve("LOCATION", Category.PERSONAL, company_rule=False) == (Action.ALLOW, "entity")
     assert p.resolve("X", Category.BUSINESS, company_rule=True) == (Action.MASK, "company_rule")
     assert SECRETS_AND_IDS.resolve("X", Category.OTHER, company_rule=False) == (
-        Action.ALLOW, "default")
+        Action.ALLOW,
+        "default",
+    )

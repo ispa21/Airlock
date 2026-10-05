@@ -67,8 +67,9 @@ class Profile:
     min_confidence: float = 0.6
     mask_style: str = "typed_placeholder"
 
-    def resolve(self, entity_type: str, category: Category, *, company_rule: bool) -> \
-            tuple[Action, str]:
+    def resolve(
+        self, entity_type: str, category: Category, *, company_rule: bool
+    ) -> tuple[Action, str]:
         """Action and where it came from: "entity", "company_rule", "category", "default"."""
         if entity_type in self.actions:
             return self.actions[entity_type], "entity"
@@ -80,11 +81,16 @@ class Profile:
 
     def with_changes(self, **changes: object) -> Profile:
         data = {
-            "id": self.id, "name": self.name, "description": self.description,
-            "builtin": self.builtin, "base_id": self.base_id, "actions": dict(self.actions),
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "builtin": self.builtin,
+            "base_id": self.base_id,
+            "actions": dict(self.actions),
             "category_actions": dict(self.category_actions),
             "company_rule_action": self.company_rule_action,
-            "default_action": self.default_action, "min_confidence": self.min_confidence,
+            "default_action": self.default_action,
+            "min_confidence": self.min_confidence,
             "mask_style": self.mask_style,
         }
         data.update(changes)
@@ -155,6 +161,4 @@ SECRETS_AND_IDS = Profile(
     min_confidence=0.6,
 )
 
-BUILTIN_PROFILES: dict[str, Profile] = {
-    p.id: p for p in (COMPANY_DEFAULT, STRICT, SECRETS_AND_IDS)
-}
+BUILTIN_PROFILES: dict[str, Profile] = {p.id: p for p in (COMPANY_DEFAULT, STRICT, SECRETS_AND_IDS)}

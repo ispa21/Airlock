@@ -27,10 +27,14 @@ def seg(text: str, i: int = 0, kind: SegmentKind = SegmentKind.BODY) -> TextSegm
 
 
 def test_real_model_finds_people_orgs_and_places(spacy_provider: SpacyNerProvider) -> None:
-    text = ("Priya Patel from Infosys met John Smith in Mumbai to review "
-            "the $2 million budget with Tata Consultancy Services.")
-    got = {(text[d.start : d.end], d.entity_type)
-           for d in NerDetector(spacy_provider).detect(seg(text))}
+    text = (
+        "Priya Patel from Infosys met John Smith in Mumbai to review "
+        "the $2 million budget with Tata Consultancy Services."
+    )
+    got = {
+        (text[d.start : d.end], d.entity_type)
+        for d in NerDetector(spacy_provider).detect(seg(text))
+    }
     assert ("Priya Patel", "PERSON") in got
     assert ("John Smith", "PERSON") in got
     assert ("Mumbai", "LOCATION") in got
@@ -41,8 +45,10 @@ def test_real_model_finds_people_orgs_and_places(spacy_provider: SpacyNerProvide
 def test_long_segments_are_chunked(spacy_provider: SpacyNerProvider) -> None:
     filler = "The quarterly numbers were reviewed again. " * 3000  # > one chunk
     text = filler + "Afterwards Rahul Sharma signed the report."
-    got = {(text[d.start : d.end], d.entity_type)
-           for d in NerDetector(spacy_provider).detect(seg(text))}
+    got = {
+        (text[d.start : d.end], d.entity_type)
+        for d in NerDetector(spacy_provider).detect(seg(text))
+    }
     assert ("Rahul Sharma", "PERSON") in got
 
 
@@ -61,8 +67,9 @@ def test_model_loads_offline_with_network_guard() -> None:
                           "blocked": network_guard.blocked_attempts()}))
         """
     )
-    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
-                         timeout=300, check=True)
+    out = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, timeout=300, check=True
+    )
     result = json.loads(out.stdout.strip().splitlines()[-1])
     assert "PERSON" in result["labels"]
     assert result["blocked"] == 0
@@ -88,8 +95,9 @@ class FakeNer(NerProvider):
 
 def test_span_cleanup_and_filters() -> None:
     text = "Report by (Anil Kumar's) team, 2024 and x"
-    ner = FakeNer([("(Anil Kumar's)", "PERSON"), ("2024", "PERSON"), ("x", "ORG"),
-                   ("team", "CARDINAL")])
+    ner = FakeNer(
+        [("(Anil Kumar's)", "PERSON"), ("2024", "PERSON"), ("x", "ORG"), ("team", "CARDINAL")]
+    )
     got = [(text[d.start : d.end], d.entity_type) for d in NerDetector(ner).detect(seg(text))]
     assert got == [("Anil Kumar", "PERSON")]
 

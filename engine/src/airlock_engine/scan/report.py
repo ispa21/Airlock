@@ -25,18 +25,48 @@ MAX_LISTED_FINDINGS = 2_000
 _BULLETS = "••••••••"
 #: Public, non-secret prefixes that help a user recognise which credential it is.
 _SECRET_PREFIXES = (
-    "github_pat_", "ghp_", "gho_", "ghu_", "ghs_", "ghr_", "glpat-", "xoxb-", "xoxp-", "xoxa-",
-    "xoxr-", "xoxs-", "xoxo-", "sk_live_", "sk_test_", "rk_live_", "rk_test_", "pk_live_",
-    "pk_test_", "sk-ant-", "sk-proj-", "sk-", "AKIA", "ASIA", "AIza", "SG.", "npm_", "eyJ",
+    "github_pat_",
+    "ghp_",
+    "gho_",
+    "ghu_",
+    "ghs_",
+    "ghr_",
+    "glpat-",
+    "xoxb-",
+    "xoxp-",
+    "xoxa-",
+    "xoxr-",
+    "xoxs-",
+    "xoxo-",
+    "sk_live_",
+    "sk_test_",
+    "rk_live_",
+    "rk_test_",
+    "pk_live_",
+    "pk_test_",
+    "sk-ant-",
+    "sk-proj-",
+    "sk-",
+    "AKIA",
+    "ASIA",
+    "AIza",
+    "SG.",
+    "npm_",
+    "eyJ",
     "https://hooks.slack.com/",
 )
 _LAST4_TYPES = frozenset({"AADHAAR", "CREDIT_CARD", "BANK_ACCOUNT", "IBAN"})
 #: Segment kinds a reader sees when opening the file normally.
-_VISIBLE_KINDS = frozenset({SegmentKind.BODY, SegmentKind.HEADER_FOOTER, SegmentKind.OCR,
-                            SegmentKind.NAME})
+_VISIBLE_KINDS = frozenset(
+    {SegmentKind.BODY, SegmentKind.HEADER_FOOTER, SegmentKind.OCR, SegmentKind.NAME}
+)
 
-SEVERITY_LABELS = {Severity.LOW: "low", Severity.MEDIUM: "medium", Severity.HIGH: "high",
-                   Severity.CRITICAL: "critical"}
+SEVERITY_LABELS = {
+    Severity.LOW: "low",
+    Severity.MEDIUM: "medium",
+    Severity.HIGH: "high",
+    Severity.CRITICAL: "critical",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,9 +165,7 @@ def build_report(
         "hidden": hidden,
         "max_severity": SEVERITY_LABELS[Severity(max_severity)] if max_severity else None,
         "by_severity": {label: by_severity[label] for label in SEVERITY_LABELS.values()},
-        "by_category": [
-            {"category": c, "count": n} for c, n in by_category.most_common()
-        ],
+        "by_category": [{"category": c, "count": n} for c, n in by_category.most_common()],
         "by_entity": [
             {
                 "entity_type": t,

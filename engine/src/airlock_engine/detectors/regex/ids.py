@@ -27,8 +27,10 @@ from airlock_engine.detectors.checksums import (
 
 # --- PAN ---------------------------------------------------------------------
 
-_PAN = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]{3}[ABCFGHJLPTKabcfghjlptk][A-Za-z]\d{4}[A-Za-z]"
-                  r"(?![A-Za-z0-9])")
+_PAN = re.compile(
+    r"(?<![A-Za-z0-9])[A-Za-z]{3}[ABCFGHJLPTKabcfghjlptk][A-Za-z]\d{4}[A-Za-z]"
+    r"(?![A-Za-z0-9])"
+)
 _PAN_CONTEXT = keywords("pan", "permanent account number", "income tax", "pan no", "pan card")
 
 
@@ -78,8 +80,10 @@ def aadhaar_detector() -> Detector:
 
 # --- GSTIN -------------------------------------------------------------------
 
-_GSTIN = re.compile(r"(?<![A-Za-z0-9])\d{2}[A-Za-z]{5}\d{4}[A-Za-z][0-9A-Za-z][Zz][0-9A-Za-z]"
-                    r"(?![A-Za-z0-9])")
+_GSTIN = re.compile(
+    r"(?<![A-Za-z0-9])\d{2}[A-Za-z]{5}\d{4}[A-Za-z][0-9A-Za-z][Zz][0-9A-Za-z]"
+    r"(?![A-Za-z0-9])"
+)
 
 
 def _gstin(segment: TextSegment, m: re.Match[str]) -> Candidate | None:
@@ -117,14 +121,26 @@ def ifsc_detector() -> Detector:
 # --- Payment cards -----------------------------------------------------------
 
 _ACCOUNT_CONTEXT = keywords(
-    "account", "a/c", "acct", "acc no", "ac no", "account no", "account number", "bank",
-    "savings", "current account", "beneficiary", "khata", "खाता",
+    "account",
+    "a/c",
+    "acct",
+    "acc no",
+    "ac no",
+    "account no",
+    "account number",
+    "bank",
+    "savings",
+    "current account",
+    "beneficiary",
+    "khata",
+    "खाता",
 )
 
 # A comma or period may end the sentence, but not separate digit groups (1,234.56).
 _CARD = re.compile(r"(?<![\w./-])(?<!\d,)\d(?:[ -]?\d){12,18}(?![\w/-]|[.,]\d)")
-_CARD_CONTEXT = keywords("card", "credit", "debit", "visa", "mastercard", "amex", "rupay",
-                         "cc", "card no", "card number")
+_CARD_CONTEXT = keywords(
+    "card", "credit", "debit", "visa", "mastercard", "amex", "rupay", "cc", "card no", "card number"
+)
 
 
 def _card(segment: TextSegment, m: re.Match[str]) -> Candidate | None:
@@ -135,16 +151,27 @@ def _card(segment: TextSegment, m: re.Match[str]) -> Candidate | None:
         return None
     if separators:
         groups = [len(g) for g in re.split(r"[ -]", raw)]
-        if groups not in ([4, 4, 4, 4], [4, 6, 5], [4, 6, 4], [4, 4, 4, 4, 3], [4, 4, 4, 2],
-                          [4, 4, 4, 4, 2], [4, 4, 4, 3], [4, 4, 5], [4, 6, 6]):
+        if groups not in (
+            [4, 4, 4, 4],
+            [4, 6, 5],
+            [4, 6, 4],
+            [4, 4, 4, 4, 3],
+            [4, 4, 4, 2],
+            [4, 4, 4, 4, 2],
+            [4, 4, 4, 3],
+            [4, 4, 5],
+            [4, 6, 6],
+        ):
             return None
     if not (luhn_valid(digits) and card_brand_valid(digits)):
         return None
     if len(set(digits)) <= 2:
         return None  # 4444 4444 4444 4448 style filler
     context = has_context(segment, m.start(), m.end(), _CARD_CONTEXT)
-    if not separators and not context and has_context(
-        segment, m.start(), m.end(), _ACCOUNT_CONTEXT
+    if (
+        not separators
+        and not context
+        and has_context(segment, m.start(), m.end(), _ACCOUNT_CONTEXT)
     ):
         return None  # "A/c no. 5863…": an account number that happens to pass Luhn
     return Candidate(m.start(), m.end(), 0.99 if context or separators else 0.95)
@@ -179,8 +206,10 @@ def bank_account_detector() -> Detector:
 
 # --- IBAN --------------------------------------------------------------------
 
-_IBAN = re.compile(r"(?<![A-Za-z0-9])[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,4})?"
-                   r"(?![A-Za-z0-9])")
+_IBAN = re.compile(
+    r"(?<![A-Za-z0-9])[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,4})?"
+    r"(?![A-Za-z0-9])"
+)
 
 
 def _iban(segment: TextSegment, m: re.Match[str]) -> Candidate | None:

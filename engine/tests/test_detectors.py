@@ -196,9 +196,14 @@ def test_assigned_secrets_and_placeholders() -> None:
     for line in (f"password={pw}", f"DB_PASS: {pw}", f'"client_secret": "{pw}"', f"pwd = '{pw}'"):
         assert ("PASSWORD", pw) in found(line), line
     for line in (
-        "password=${DB_PASSWORD}", "api_key = os.environ['API_KEY']", "token: <your-token>",
-        "password: ********", "secret = get_secret('db')", "PASSWORD=changeme",
-        "Secret: classified", "The password must have 12 characters.",
+        "password=${DB_PASSWORD}",
+        "api_key = os.environ['API_KEY']",
+        "token: <your-token>",
+        "password: ********",
+        "secret = get_secret('db')",
+        "PASSWORD=changeme",
+        "Secret: classified",
+        "The password must have 12 characters.",
     ):
         assert not {"PASSWORD", "API_KEY"} & types(line), line
 

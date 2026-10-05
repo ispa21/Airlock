@@ -28,8 +28,12 @@ def test_custom_profile_round_trip(tmp_path: Path) -> None:
     store = Storage(tmp_path).profiles
     mine = store.create("Legal team", "strict")
     assert mine.base_id == "strict" and not mine.builtin
-    mine = store.update(mine.id, actions={"EMAIL": Action.ALLOW, "PAN": Action.BLOCK},
-                        min_confidence=0.8, mask_style="placeholder")
+    mine = store.update(
+        mine.id,
+        actions={"EMAIL": Action.ALLOW, "PAN": Action.BLOCK},
+        min_confidence=0.8,
+        mask_style="placeholder",
+    )
     assert mine.actions["EMAIL"] is Action.ALLOW and mine.min_confidence == 0.8
     store.set_default(mine.id)
 
@@ -62,9 +66,12 @@ def test_validation(tmp_path: Path) -> None:
     with pytest.raises(ProfileError):
         store.create("x", "company-default")
     # Custom categories are valid targets when the caller knows them.
-    assert store.update(p.id, actions={"INTERNAL_PROJECT": Action.REDACT},
-                        known_types={"INTERNAL_PROJECT"}).actions["INTERNAL_PROJECT"] is \
-        Action.REDACT
+    assert (
+        store.update(
+            p.id, actions={"INTERNAL_PROJECT": Action.REDACT}, known_types={"INTERNAL_PROJECT"}
+        ).actions["INTERNAL_PROJECT"]
+        is Action.REDACT
+    )
 
 
 def test_version_1_database_is_migrated(tmp_path: Path) -> None:

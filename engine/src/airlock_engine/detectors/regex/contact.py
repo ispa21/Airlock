@@ -48,14 +48,50 @@ def email_detector() -> Detector:
 # --- Phone -------------------------------------------------------------------
 
 _PHONE_CONTEXT = keywords(
-    "phone", "ph", "mobile", "mob", "cell", "tel", "telephone", "contact", "call", "whatsapp",
-    "fax", "landline", "helpline", "m", "t",
+    "phone",
+    "ph",
+    "mobile",
+    "mob",
+    "cell",
+    "tel",
+    "telephone",
+    "contact",
+    "call",
+    "whatsapp",
+    "fax",
+    "landline",
+    "helpline",
+    "m",
+    "t",
 )
 #: Reference numbers that look like bare mobile numbers.
 _NOT_PHONE_CONTEXT = keywords(
-    "order", "invoice", "inv", "ref", "reference", "id", "txn", "transaction", "ticket", "po",
-    "sku", "serial", "policy", "awb", "tracking", "utr", "receipt", "challan", "claim", "case",
-    "account", "a/c", "acct", "no", "number", "#",
+    "order",
+    "invoice",
+    "inv",
+    "ref",
+    "reference",
+    "id",
+    "txn",
+    "transaction",
+    "ticket",
+    "po",
+    "sku",
+    "serial",
+    "policy",
+    "awb",
+    "tracking",
+    "utr",
+    "receipt",
+    "challan",
+    "claim",
+    "case",
+    "account",
+    "a/c",
+    "acct",
+    "no",
+    "number",
+    "#",
 )
 _EXTENSION = re.compile(r"[\s,;]*(?:ext\.?|extn\.?|extension|x|#)\s*\d{1,6}$", re.IGNORECASE)
 _IP_SHAPE = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$")
@@ -105,10 +141,9 @@ class PhoneDetector(Detector):
             elif formatted:
                 confidence = 0.85
             elif (
-                ((digits == 10 and raw[0] in "6789")
-                 or (digits == 11 and raw[:1] == "0" and raw[1:2] in ("6", "7", "8", "9")))
-                and not has_context(segment, start, end, _NOT_PHONE_CONTEXT, before=24)
-            ):
+                (digits == 10 and raw[0] in "6789")
+                or (digits == 11 and raw[:1] == "0" and raw[1:2] in ("6", "7", "8", "9"))
+            ) and not has_context(segment, start, end, _NOT_PHONE_CONTEXT, before=24):
                 confidence = 0.7  # bare Indian mobile number
             else:
                 continue  # unformatted digits without context: too ambiguous
@@ -187,16 +222,19 @@ def _url(segment: TextSegment, m: re.Match[str]) -> Candidate | None:
         end -= 1
     value = text[start:end]
     host_part = re.sub(r"^[a-z]+://", "", value, flags=re.IGNORECASE)
-    if len(host_part) < 4 or ("." not in host_part.split("/", 1)[0] and not host_part.startswith(
-        ("localhost", "[")
-    )):
+    if len(host_part) < 4 or (
+        "." not in host_part.split("/", 1)[0] and not host_part.startswith(("localhost", "["))
+    ):
         return None
     return Candidate(start, end, 0.95)
 
 
 def url_detector() -> Detector:
     return PatternDetector(
-        "regex.url", "URL", _URL, _url,
+        "regex.url",
+        "URL",
+        _URL,
+        _url,
         prefilter=lambda t: "://" in t or "www." in t.lower(),
     )
 
@@ -216,8 +254,9 @@ _DATE = re.compile(
     r")(?![\w/-])",
     re.IGNORECASE,
 )
-_DOB_CONTEXT = keywords("dob", "d.o.b", "date of birth", "birth date", "birthdate", "born",
-                        "birthday", "जन्म तिथि")
+_DOB_CONTEXT = keywords(
+    "dob", "d.o.b", "date of birth", "birth date", "birthdate", "born", "birthday", "जन्म तिथि"
+)
 
 
 def _dob(segment: TextSegment, m: re.Match[str]) -> Candidate | None:

@@ -130,7 +130,9 @@ def test_file_changed_after_validation_is_detected(
             handle.write(b"tampered")
         return validated
 
-    monkeypatch.setattr("airlock_engine.extraction.service.validate_input_file", validate_then_modify)
+    monkeypatch.setattr(
+        "airlock_engine.extraction.service.validate_input_file", validate_then_modify
+    )
     (result,) = [
         r for r in call(req(1, "document.extract", path=str(documents["clients.csv"]))) if "id" in r
     ]

@@ -63,8 +63,11 @@ _BUILTIN: tuple[EntityType, ...] = (
     EntityType("ACCESS_TOKEN", "Access token (JWT)", _C.CREDENTIALS, _S.CRITICAL, _Q.SECRET),
     EntityType("PASSWORD", "Password or secret", _C.CREDENTIALS, _S.CRITICAL, _Q.SECRET),
     EntityType(
-        "CONNECTION_STRING", "Connection string with credentials", _C.CREDENTIALS,
-        _S.CRITICAL, _Q.SECRET,
+        "CONNECTION_STRING",
+        "Connection string with credentials",
+        _C.CREDENTIALS,
+        _S.CRITICAL,
+        _Q.SECRET,
     ),
 )
 
@@ -72,12 +75,14 @@ BUILTIN_ENTITIES: dict[str, EntityType] = {e.id: e for e in _BUILTIN}
 
 #: Custom-rule categories every installation starts with.
 BUILTIN_RULE_CATEGORIES: tuple[EntityType, ...] = (
-    EntityType("INTERNAL_PROJECT", "Internal project", _C.INTELLECTUAL_PROPERTY, _S.HIGH,
-               _Q.COMPANY_RULE),
+    EntityType(
+        "INTERNAL_PROJECT", "Internal project", _C.INTELLECTUAL_PROPERTY, _S.HIGH, _Q.COMPANY_RULE
+    ),
     EntityType("CLIENT_NAME", "Client or customer", _C.BUSINESS, _S.HIGH, _Q.COMPANY_RULE),
     EntityType("EMPLOYEE_ID", "Employee id", _C.PERSONAL, _S.MEDIUM, _Q.COMPANY_RULE),
-    EntityType("INTERNAL_SYSTEM", "Internal system or host", _C.BUSINESS, _S.MEDIUM,
-               _Q.COMPANY_RULE),
+    EntityType(
+        "INTERNAL_SYSTEM", "Internal system or host", _C.BUSINESS, _S.MEDIUM, _Q.COMPANY_RULE
+    ),
     EntityType("CONFIDENTIAL_TERM", "Confidential term", _C.BUSINESS, _S.HIGH, _Q.COMPANY_RULE),
 )
 

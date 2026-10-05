@@ -187,8 +187,9 @@ class CompanyRuleDetector(Detector):
     def __bool__(self) -> bool:
         return bool(self.rules)
 
-    def _emit(self, segment: TextSegment, rule: CompanyRule, start: int, end: int) -> \
-            DetectionResult:
+    def _emit(
+        self, segment: TextSegment, rule: CompanyRule, start: int, end: int
+    ) -> DetectionResult:
         return DetectionResult(
             entity_type=rule.category_id,
             matched_value=SensitiveValue(segment.text[start:end]),

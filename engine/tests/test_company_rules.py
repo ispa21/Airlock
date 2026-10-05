@@ -17,8 +17,9 @@ from airlock_engine.detectors.custom import (
 from airlock_engine.detectors.pipeline import DetectionEngine
 
 
-def rule(kind: str, pattern: str, *aliases: str, rid: str = "r1",
-         category: str = "INTERNAL_PROJECT") -> CompanyRule:
+def rule(
+    kind: str, pattern: str, *aliases: str, rid: str = "r1", category: str = "INTERNAL_PROJECT"
+) -> CompanyRule:
     validate_rule_terms(kind, pattern, aliases)
     return CompanyRule(rid, kind, pattern, category, Severity.HIGH, tuple(aliases))
 
@@ -37,14 +38,25 @@ def test_exact_is_case_sensitive_and_whole_word() -> None:
 
 def test_case_insensitive() -> None:
     r = [rule("case_insensitive", "Project Phoenix")]
-    assert matches(r, "PROJECT PHOENIX and project phoenix") == ["PROJECT PHOENIX", "project phoenix"]
+    assert matches(r, "PROJECT PHOENIX and project phoenix") == [
+        "PROJECT PHOENIX",
+        "project phoenix",
+    ]
     assert matches(r, "Project Phoenixes") == []
 
 
 @pytest.mark.parametrize(
     "variant",
-    ["Project Phoenix", "PROJECT-PHOENIX", "project_phoenix", "ProjectPhoenix", "Project  Phoenix",
-     "project.phoenix", "Prōject Phœnix".replace("œ", "oe"), "ＰＲＯＪＥＣＴ　ＰＨＯＥＮＩＸ"],
+    [
+        "Project Phoenix",
+        "PROJECT-PHOENIX",
+        "project_phoenix",
+        "ProjectPhoenix",
+        "Project  Phoenix",
+        "project.phoenix",
+        "Prōject Phœnix".replace("œ", "oe"),
+        "ＰＲＯＪＥＣＴ　ＰＨＯＥＮＩＸ",
+    ],
 )
 def test_normalized_variants(variant: str) -> None:
     r = [rule("normalized", "Project Phoenix")]
@@ -60,7 +72,9 @@ def test_normalized_respects_word_edges() -> None:
 def test_aliases_match_with_the_rule_kind() -> None:
     r = [rule("case_insensitive", "Acme Holdings", "ACME", "Acme Corp", rid="client")]
     assert matches(r, "acme corp signed; ACME paid; Acme Holdings Ltd") == [
-        "acme corp", "ACME", "Acme Holdings",
+        "acme corp",
+        "ACME",
+        "Acme Holdings",
     ]
 
 
@@ -137,8 +151,16 @@ def test_company_rules_gate_is_perfect() -> None:
         "Kestrel": ["Kestrel", "KESTREL"],
         "HELIX": ["HELIX"],
     }
-    negatives = ["Phoenix project", "Blue Falcons", "Acme", "Orion-77", "Kestrels", "Helix",
-                 "phoenixproject", "falcon blue"]
+    negatives = [
+        "Phoenix project",
+        "Blue Falcons",
+        "Acme",
+        "Orion-77",
+        "Kestrels",
+        "Helix",
+        "phoenixproject",
+        "falcon blue",
+    ]
     segments, expected = [], set()
     i = 0
     for term_variants in variants.values():

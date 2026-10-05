@@ -23,9 +23,20 @@ def test_schema_created_with_builtin_seed(storage: Storage) -> None:
     assert store.db.schema_version() == SCHEMA_VERSION
     ids = {c.id for c in store.categories()}
     assert {"EMAIL", "AADHAAR", "API_KEY", "INTERNAL_PROJECT", "CLIENT_NAME"} <= ids
-    tables = {r["name"] for r in store.db.query("SELECT name FROM sqlite_master WHERE type='table'")}
-    assert {"settings", "privacy_profiles", "policy_rules", "categories", "custom_rules",
-            "custom_rule_aliases", "allow_list", "license", "schema_version"} <= tables
+    tables = {
+        r["name"] for r in store.db.query("SELECT name FROM sqlite_master WHERE type='table'")
+    }
+    assert {
+        "settings",
+        "privacy_profiles",
+        "policy_rules",
+        "categories",
+        "custom_rules",
+        "custom_rule_aliases",
+        "allow_list",
+        "license",
+        "schema_version",
+    } <= tables
     assert store.db.query("SELECT id FROM privacy_profiles")[0]["id"] == "company-default"
 
 
@@ -38,8 +49,12 @@ def test_database_is_user_only(storage: Storage, tmp_path: Path) -> None:
 
 def test_rule_crud_and_persistence(tmp_path: Path) -> None:
     first = Storage(tmp_path)
-    row = first.rules.create(kind="normalized", pattern="Project Phoenix",
-                             category_id="INTERNAL_PROJECT", aliases=("Phoenix", "PHX"))
+    row = first.rules.create(
+        kind="normalized",
+        pattern="Project Phoenix",
+        category_id="INTERNAL_PROJECT",
+        aliases=("Phoenix", "PHX"),
+    )
     assert row.aliases == ("PHX", "Phoenix")
     updated = first.rules.update(row.id, aliases=("PHX",), enabled=False, action="BLOCK")
     assert updated is not None and updated.aliases == ("PHX",) and not updated.enabled
@@ -61,8 +76,9 @@ def test_rule_validation(storage: Storage) -> None:
     with pytest.raises(RuleError):
         storage.rules.create(kind="regex", pattern="(", category_id="INTERNAL_PROJECT")
     with pytest.raises(RuleError):
-        storage.rules.create(kind="exact", pattern="ok", category_id="INTERNAL_PROJECT",
-                             action="DELETE")
+        storage.rules.create(
+            kind="exact", pattern="ok", category_id="INTERNAL_PROJECT", action="DELETE"
+        )
     assert storage.rules.update("rule_missing", pattern="x") is None
 
 

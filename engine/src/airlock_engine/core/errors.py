@@ -220,8 +220,9 @@ def profile_not_found() -> AirlockError:
 
 
 def invalid_profile(message: str) -> AirlockError:
-    return AirlockError(kind="invalid_profile", message=message,
-                        next_step="Adjust the profile and try again.")
+    return AirlockError(
+        kind="invalid_profile", message=message, next_step="Adjust the profile and try again."
+    )
 
 
 def finding_not_found() -> AirlockError:

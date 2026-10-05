@@ -28,37 +28,78 @@ _E = r"(?![A-Za-z0-9_\-])"  # right token boundary
 
 #: (rule id, entity type, pattern, value group). Group 0 = whole match.
 _TOKENS: tuple[tuple[str, str, re.Pattern[str], int], ...] = (
-    ("secret.aws_access_key", "CLOUD_KEY",
-     re.compile(_B + r"(?:AKIA|ASIA|ABIA|ACCA|AROA|AIDA)[A-Z2-7]{16}" + _E), 0),
-    ("secret.github_token", "API_KEY",
-     re.compile(_B + r"(?:gh[pousr]_[A-Za-z0-9]{36,251}|github_pat_[A-Za-z0-9_]{60,255})" + _E), 0),
-    ("secret.gitlab_token", "API_KEY",
-     re.compile(_B + r"glpat-[A-Za-z0-9_\-]{20,}" + _E), 0),
-    ("secret.slack_token", "API_KEY",
-     re.compile(_B + r"xox[abposr]-[A-Za-z0-9]{8,}(?:-[A-Za-z0-9]{4,})+" + _E), 0),
-    ("secret.slack_webhook", "API_KEY",
-     re.compile(r"https://hooks\.slack\.com/services/T[A-Z0-9]+/B[A-Z0-9]+/[A-Za-z0-9]{16,}"), 0),
-    ("secret.stripe_key", "API_KEY",
-     re.compile(_B + r"(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]{16,}" + _E), 0),
-    ("secret.google_api_key", "API_KEY",
-     re.compile(_B + r"AIza[0-9A-Za-z_\-]{35}" + _E), 0),
-    ("secret.openai_key", "API_KEY",
-     re.compile(_B + r"sk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_\-]{20,}T3BlbkFJ[A-Za-z0-9_\-]{20,}"
-                + _E), 0),
-    ("secret.anthropic_key", "API_KEY",
-     re.compile(_B + r"sk-ant-(?:api|admin)\d{2}-[A-Za-z0-9_\-]{80,}" + _E), 0),
-    ("secret.generic_sk_key", "API_KEY",
-     re.compile(_B + r"sk-(?:proj-|live-)?[A-Za-z0-9]{32,}" + _E), 0),
-    ("secret.sendgrid_key", "API_KEY",
-     re.compile(_B + r"SG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}" + _E), 0),
-    ("secret.twilio_key", "API_KEY",
-     re.compile(_B + r"SK[0-9a-f]{32}" + _E), 0),
-    ("secret.npm_token", "API_KEY",
-     re.compile(_B + r"npm_[A-Za-z0-9]{36}" + _E), 0),
-    ("secret.azure_storage_key", "CLOUD_KEY",
-     re.compile(r"(?i)AccountKey=([A-Za-z0-9+/]{86}==)"), 1),
-    ("secret.azure_sas", "CLOUD_KEY",
-     re.compile(r"(?i)(?:SharedAccessSignature|[?&]sig)=([A-Za-z0-9%+/=]{40,})"), 1),
+    (
+        "secret.aws_access_key",
+        "CLOUD_KEY",
+        re.compile(_B + r"(?:AKIA|ASIA|ABIA|ACCA|AROA|AIDA)[A-Z2-7]{16}" + _E),
+        0,
+    ),
+    (
+        "secret.github_token",
+        "API_KEY",
+        re.compile(_B + r"(?:gh[pousr]_[A-Za-z0-9]{36,251}|github_pat_[A-Za-z0-9_]{60,255})" + _E),
+        0,
+    ),
+    ("secret.gitlab_token", "API_KEY", re.compile(_B + r"glpat-[A-Za-z0-9_\-]{20,}" + _E), 0),
+    (
+        "secret.slack_token",
+        "API_KEY",
+        re.compile(_B + r"xox[abposr]-[A-Za-z0-9]{8,}(?:-[A-Za-z0-9]{4,})+" + _E),
+        0,
+    ),
+    (
+        "secret.slack_webhook",
+        "API_KEY",
+        re.compile(r"https://hooks\.slack\.com/services/T[A-Z0-9]+/B[A-Z0-9]+/[A-Za-z0-9]{16,}"),
+        0,
+    ),
+    (
+        "secret.stripe_key",
+        "API_KEY",
+        re.compile(_B + r"(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]{16,}" + _E),
+        0,
+    ),
+    ("secret.google_api_key", "API_KEY", re.compile(_B + r"AIza[0-9A-Za-z_\-]{35}" + _E), 0),
+    (
+        "secret.openai_key",
+        "API_KEY",
+        re.compile(
+            _B + r"sk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_\-]{20,}T3BlbkFJ[A-Za-z0-9_\-]{20,}" + _E
+        ),
+        0,
+    ),
+    (
+        "secret.anthropic_key",
+        "API_KEY",
+        re.compile(_B + r"sk-ant-(?:api|admin)\d{2}-[A-Za-z0-9_\-]{80,}" + _E),
+        0,
+    ),
+    (
+        "secret.generic_sk_key",
+        "API_KEY",
+        re.compile(_B + r"sk-(?:proj-|live-)?[A-Za-z0-9]{32,}" + _E),
+        0,
+    ),
+    (
+        "secret.sendgrid_key",
+        "API_KEY",
+        re.compile(_B + r"SG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}" + _E),
+        0,
+    ),
+    ("secret.twilio_key", "API_KEY", re.compile(_B + r"SK[0-9a-f]{32}" + _E), 0),
+    ("secret.npm_token", "API_KEY", re.compile(_B + r"npm_[A-Za-z0-9]{36}" + _E), 0),
+    (
+        "secret.azure_storage_key",
+        "CLOUD_KEY",
+        re.compile(r"(?i)AccountKey=([A-Za-z0-9+/]{86}==)"),
+        1,
+    ),
+    (
+        "secret.azure_sas",
+        "CLOUD_KEY",
+        re.compile(r"(?i)(?:SharedAccessSignature|[?&]sig)=([A-Za-z0-9%+/=]{40,})"),
+        1,
+    ),
 )
 
 _PEM = re.compile(
@@ -136,8 +177,9 @@ class SecretDetector(Detector):
             return
         seen: list[tuple[int, int]] = []
 
-        def emit(rule: str, entity_type: str, start: int, end: int, conf: float) -> \
-                Iterator[DetectionResult]:
+        def emit(
+            rule: str, entity_type: str, start: int, end: int, conf: float
+        ) -> Iterator[DetectionResult]:
             if end <= start or any(s <= start and end <= e for s, e in seen):
                 return
             seen.append((start, end))
@@ -165,20 +207,28 @@ class SecretDetector(Detector):
         if "://" in text:
             for m in _URL_CREDENTIALS.finditer(text):
                 if _is_plausible_secret(m.group(1)):
-                    yield from emit("secret.url_credentials", "CONNECTION_STRING",
-                                    m.start(1), m.end(1), 0.95)
+                    yield from emit(
+                        "secret.url_credentials", "CONNECTION_STRING", m.start(1), m.end(1), 0.95
+                    )
 
         lower = text.lower()
         if "bearer" in lower:
             for m in _BEARER.finditer(text):
                 yield from emit("secret.bearer_token", "ACCESS_TOKEN", m.start(1), m.end(1), 0.93)
-        if ("pwd" in lower or "password" in lower) and ";" in text and _CONNECTION_KEYS.search(
-            text
+        if (
+            ("pwd" in lower or "password" in lower)
+            and ";" in text
+            and _CONNECTION_KEYS.search(text)
         ):
             for m in _KV_CONNECTION.finditer(text):
                 if _is_plausible_secret(m.group(1)):
-                    yield from emit("secret.connection_password", "CONNECTION_STRING",
-                                    m.start(1), m.end(1), 0.93)
+                    yield from emit(
+                        "secret.connection_password",
+                        "CONNECTION_STRING",
+                        m.start(1),
+                        m.end(1),
+                        0.93,
+                    )
         done_keys: set[int] = set()
         for hit in _SECRET_KEY_WORD.finditer(text):
             key_start, key_end = hit.start(), hit.end()
@@ -204,8 +254,10 @@ class SecretDetector(Detector):
             yield from emit("secret.assigned", "PASSWORD", start, start + len(stripped), 0.92)
 
         # Context from a spreadsheet header ("Password" column).
-        if segment.context and len(segment.context) < 64 and _SECRET_KEY_WORD.search(
+        if (
             segment.context
+            and len(segment.context) < 64
+            and _SECRET_KEY_WORD.search(segment.context)
         ):
             value = text.strip()
             if _is_plausible_secret(value) and " " not in value:

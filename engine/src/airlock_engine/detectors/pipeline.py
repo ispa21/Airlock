@@ -102,7 +102,9 @@ def resolve(detections: Sequence[DetectionResult]) -> list[Detected]:
     survivors: list[Detected] = []
     for d, extra in merged:
         if any(
-            other is not d and other.entity_type != d.entity_type and _overlaps(other, d)
+            other is not d
+            and other.entity_type != d.entity_type
+            and _overlaps(other, d)
             and _beats(other, d)
             for other, _ in merged
         ):

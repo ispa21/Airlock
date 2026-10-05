@@ -41,9 +41,12 @@ class ProfileStore:
     # --- reading -----------------------------------------------------------
 
     def all(self) -> list[Profile]:
-        custom = [self._load(r) for r in self.db.query(
-            "SELECT * FROM privacy_profiles WHERE is_builtin = 0 ORDER BY created_at, id"
-        )]
+        custom = [
+            self._load(r)
+            for r in self.db.query(
+                "SELECT * FROM privacy_profiles WHERE is_builtin = 0 ORDER BY created_at, id"
+            )
+        ]
         return [*BUILTIN_PROFILES.values(), *custom]
 
     def get(self, profile_id: str) -> Profile:
@@ -70,7 +73,8 @@ class ProfileStore:
             builtin=False,
             base_id=base.id,
             actions=actions,
-            min_confidence=row["min_confidence"] if row["min_confidence"] is not None
+            min_confidence=row["min_confidence"]
+            if row["min_confidence"] is not None
             else base.min_confidence,
             mask_style=row["mask_style"] or base.mask_style,
         )
@@ -108,9 +112,15 @@ class ProfileStore:
             conn.execute(
                 "INSERT INTO privacy_profiles (id, name, is_builtin, created_at, updated_at, "
                 "base_id, min_confidence, mask_style) VALUES (?, ?, 0, ?, ?, ?, ?, ?)",
-                (profile_id, name, stamp, stamp, root,
-                 None if source.min_confidence == base.min_confidence else source.min_confidence,
-                 None if source.mask_style == base.mask_style else source.mask_style),
+                (
+                    profile_id,
+                    name,
+                    stamp,
+                    stamp,
+                    root,
+                    None if source.min_confidence == base.min_confidence else source.min_confidence,
+                    None if source.mask_style == base.mask_style else source.mask_style,
+                ),
             )
             # Copy only what differs from the root built-in profile.
             conn.executemany(
@@ -149,14 +159,20 @@ class ProfileStore:
         base = BUILTIN_PROFILES[current.base_id or DEFAULT_PROFILE_ID]
         with self.db.transaction() as conn:
             if name is not None:
-                conn.execute("UPDATE privacy_profiles SET name = ? WHERE id = ?",
-                             (_check_name(name), profile_id))
+                conn.execute(
+                    "UPDATE privacy_profiles SET name = ? WHERE id = ?",
+                    (_check_name(name), profile_id),
+                )
             if min_confidence is not None:
-                conn.execute("UPDATE privacy_profiles SET min_confidence = ? WHERE id = ?",
-                             (min_confidence, profile_id))
+                conn.execute(
+                    "UPDATE privacy_profiles SET min_confidence = ? WHERE id = ?",
+                    (min_confidence, profile_id),
+                )
             if mask_style is not None:
-                conn.execute("UPDATE privacy_profiles SET mask_style = ? WHERE id = ?",
-                             (mask_style, profile_id))
+                conn.execute(
+                    "UPDATE privacy_profiles SET mask_style = ? WHERE id = ?",
+                    (mask_style, profile_id),
+                )
             for entity_type, action in (actions or {}).items():
                 conn.execute(
                     "DELETE FROM policy_rules WHERE profile_id = ? AND entity_type = ?",
@@ -169,8 +185,9 @@ class ProfileStore:
                         "VALUES (?, ?, ?)",
                         (profile_id, entity_type, action.value),
                     )
-            conn.execute("UPDATE privacy_profiles SET updated_at = ? WHERE id = ?",
-                         (now(), profile_id))
+            conn.execute(
+                "UPDATE privacy_profiles SET updated_at = ? WHERE id = ?", (now(), profile_id)
+            )
         return self.get(profile_id)
 
     def delete(self, profile_id: str) -> None:

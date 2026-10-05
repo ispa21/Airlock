@@ -75,14 +75,29 @@ def test_scan_finds_entities_everywhere_without_leaking(
     before = hashlib.sha256(docx_path.read_bytes()).hexdigest()
     registry = build_registry(tmp_path / "data")
     # Requests in one batch run concurrently: dependent calls go in separate batches.
-    call(registry, req(1, "rules.create", kind="normalized", pattern="Project Nightjar",
-                       category_id="INTERNAL_PROJECT"))
+    call(
+        registry,
+        req(
+            1,
+            "rules.create",
+            kind="normalized",
+            pattern="Project Nightjar",
+            category_id="INTERNAL_PROJECT",
+        ),
+    )
     rs = call(registry, req(2, "scan.start", path=str(docx_path), ocr=False))
     result = result_of(rs, 2)
     findings = result["findings"]
     by_type = {f["entity_type"] for f in findings}
-    assert {"EMAIL", "PAN", "AADHAAR", "CREDIT_CARD", "API_KEY", "INTERNAL_PROJECT",
-            "PERSON"} <= by_type
+    assert {
+        "EMAIL",
+        "PAN",
+        "AADHAAR",
+        "CREDIT_CARD",
+        "API_KEY",
+        "INTERNAL_PROJECT",
+        "PERSON",
+    } <= by_type
 
     hidden = {f["entity_type"]: f["location"]["kind"] for f in findings if f["hidden"]}
     assert hidden.get("PAN") == "comment"
@@ -134,19 +149,26 @@ def test_scan_discard_and_session_ids(docx_path: Path) -> None:
 def test_scan_of_env_file_flags_credentials(tmp_path: Path) -> None:
     env = tmp_path / "prod.env"
     pw = S.password()
-    env.write_text(f"DB_HOST=10.20.30.40\nDB_PASSWORD={pw}\nAPI_TOKEN={GH_TOKEN}\n"
-                   "LOG_LEVEL=info\n", encoding="utf-8")
+    env.write_text(
+        f"DB_HOST=10.20.30.40\nDB_PASSWORD={pw}\nAPI_TOKEN={GH_TOKEN}\nLOG_LEVEL=info\n",
+        encoding="utf-8",
+    )
     rs = call(build_registry(), req(1, "scan.start", path=str(env), ner=False))
     findings = result_of(rs, 1)["findings"]
     assert {(f["entity_type"], f["severity"]) for f in findings} >= {
-        ("PASSWORD", "critical"), ("API_KEY", "critical"), ("IP_ADDRESS", "medium"),
+        ("PASSWORD", "critical"),
+        ("API_KEY", "critical"),
+        ("IP_ADDRESS", "medium"),
     }
     assert pw not in json.dumps(findings)
 
 
 def test_scan_errors_are_actionable(tmp_path: Path) -> None:
-    rs = call(build_registry(), req(1, "scan.start", path=str(tmp_path / "missing.pdf")),
-              req(2, "scan.start", path=str(tmp_path), ner="yes"))
+    rs = call(
+        build_registry(),
+        req(1, "scan.start", path=str(tmp_path / "missing.pdf")),
+        req(2, "scan.start", path=str(tmp_path), ner="yes"),
+    )
     errors = {r["id"]: r["error"] for r in rs if "error" in r}
     assert errors[1]["data"]["kind"] == "file_not_found"
     assert errors[2]["code"] == -32602
@@ -154,13 +176,21 @@ def test_scan_errors_are_actionable(tmp_path: Path) -> None:
 
 def test_rules_rpc_crud_and_validation(tmp_path: Path, log_capture: io.StringIO) -> None:
     registry = build_registry(tmp_path)
-    rs = call(registry, req(1, "rules.add_category", label="Codenames",
-                            group="INTELLECTUAL_PROPERTY", severity=4))
+    rs = call(
+        registry,
+        req(1, "rules.add_category", label="Codenames", group="INTELLECTUAL_PROPERTY", severity=4),
+    )
     assert result_of(rs, 1)["category"]["id"] == "CODENAMES"
     rs = call(
         registry,
-        req(2, "rules.create", kind="exact", pattern="Falconer", category_id="CODENAMES",
-            aliases=["FLC"]),
+        req(
+            2,
+            "rules.create",
+            kind="exact",
+            pattern="Falconer",
+            category_id="CODENAMES",
+            aliases=["FLC"],
+        ),
         req(3, "rules.create", kind="regex", pattern="Secretive(", category_id="CODENAMES"),
         req(4, "rules.create", kind="exact", pattern="x", category_id="NOPE"),
     )
@@ -174,12 +204,18 @@ def test_rules_rpc_crud_and_validation(tmp_path: Path, log_capture: io.StringIO)
     assert [r["id"] for r in listing["rules"]] == [rule["id"]]
     assert "regex" in listing["kinds"] and "BLOCK" in listing["actions"]
 
-    rs = call(registry, req(6, "rules.update", id=rule["id"], enabled=False),
-              req(7, "rules.update", id="rule_nope", enabled=False))
+    rs = call(
+        registry,
+        req(6, "rules.update", id=rule["id"], enabled=False),
+        req(7, "rules.update", id="rule_nope", enabled=False),
+    )
     assert result_of(rs, 6)["rule"]["enabled"] is False
     rs += call(registry, req(8, "rules.delete", id=rule["id"]))
-    rs += call(registry, req(9, "rules.delete", id=rule["id"]),
-               req(10, "rules.update", id=rule["id"], enabled="no"))
+    rs += call(
+        registry,
+        req(9, "rules.delete", id=rule["id"]),
+        req(10, "rules.update", id=rule["id"], enabled="no"),
+    )
     errors = {r["id"]: r["error"] for r in rs if "error" in r}
     assert errors[7]["data"]["kind"] == "rule_not_found"
     assert errors[9]["data"]["kind"] == "rule_not_found"
@@ -192,8 +228,9 @@ def test_allow_listed_values_are_not_reported(tmp_path: Path, docx_path: Path) -
     from airlock_engine.storage import Storage
 
     Storage(tmp_path).allow_list.add("EMAIL", EMAIL)
-    rs = call(build_registry(tmp_path), req(1, "scan.start", path=str(docx_path), ocr=False,
-                                            ner=False))
+    rs = call(
+        build_registry(tmp_path), req(1, "scan.start", path=str(docx_path), ocr=False, ner=False)
+    )
     result = result_of(rs, 1)
     assert "EMAIL" not in {f["entity_type"] for f in result["findings"]}
     assert result["summary"]["allowed"] == 1
@@ -201,8 +238,9 @@ def test_allow_listed_values_are_not_reported(tmp_path: Path, docx_path: Path) -
 
 def test_scan_cancellation(tmp_path: Path) -> None:
     big = tmp_path / "big.txt"
-    big.write_text(("Contact a.b@example.invalid or +91 98765 43210. " * 40 + "\n") * 4000,
-                   encoding="utf-8")
+    big.write_text(
+        ("Contact a.b@example.invalid or +91 98765 43210. " * 40 + "\n") * 4000, encoding="utf-8"
+    )
     rs = call(
         build_registry(),
         req(1, "scan.start", path=str(big), ner=False),

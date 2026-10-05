@@ -123,8 +123,14 @@ class RuleStore:
             aliases.setdefault(r["rule_id"], []).append(r["alias"])
         return [
             RuleRow(
-                r["id"], r["kind"], r["pattern"], tuple(aliases.get(r["id"], ())),
-                r["category_id"], r["action"], bool(r["enabled"]), r["created_at"],
+                r["id"],
+                r["kind"],
+                r["pattern"],
+                tuple(aliases.get(r["id"], ())),
+                r["category_id"],
+                r["action"],
+                bool(r["enabled"]),
+                r["created_at"],
                 r["updated_at"],
             )
             for r in self.db.query("SELECT * FROM custom_rules ORDER BY created_at, id")
@@ -133,8 +139,14 @@ class RuleStore:
     def get(self, rule_id: str) -> RuleRow | None:
         return next((r for r in self.all() if r.id == rule_id), None)
 
-    def _check(self, kind: str, pattern: str, aliases: tuple[str, ...], category_id: str,
-               action: str | None) -> None:
+    def _check(
+        self,
+        kind: str,
+        pattern: str,
+        aliases: tuple[str, ...],
+        category_id: str,
+        action: str | None,
+    ) -> None:
         validate_rule_terms(kind, pattern, aliases)
         if self.category(category_id) is None:
             raise RuleError("Choose an existing category for this rule.")
@@ -202,8 +214,12 @@ class RuleStore:
         severity = {c.id: Severity(c.severity) for c in self.categories()}
         return [
             CompanyRule(
-                id=r.id, kind=r.kind, pattern=r.pattern, category_id=r.category_id,
-                severity=severity.get(r.category_id, Severity.HIGH), aliases=r.aliases,
+                id=r.id,
+                kind=r.kind,
+                pattern=r.pattern,
+                category_id=r.category_id,
+                severity=severity.get(r.category_id, Severity.HIGH),
+                aliases=r.aliases,
                 enabled=r.enabled,
             )
             for r in self.all()
