@@ -63,7 +63,11 @@ The UI end-to-end test (`scripts/desktop_e2e.py`, standard library only)
 drives the installed app through WebDriver: `tauri-driver` (built in the
 workflow with `cargo install`) and the `msedgedriver` that matches the
 runner's WebView2 runtime (`packaging/windows/edgedriver.ps1`; a test tool,
-never shipped). WebDriver cannot drag files from the desktop, so the page
+never shipped). The test starts the installed app with a WebView2 debugging
+port (`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`, set for the test's process
+only) and msedgedriver attaches to it (`debuggerAddress`); letting
+msedgedriver launch the app timed out on the runner waiting for
+`DevToolsActivePort`. WebDriver cannot drag files from the desktop, so the page
 emits the window's own `tauri://drag-drop` event with `{paths, position}`.
 The test then scans, creates the protected copy, waits for its check to
 pass, clicks Copy Text for AI and reads the clipboard with `Get-Clipboard`

@@ -3,7 +3,13 @@
 Drives the real app the way a person does:
 
  1. tauri-driver starts the native WebDriver (msedgedriver for WebView2 on
-    Windows, WebKitWebDriver on Linux), which starts the app.
+    Windows, WebKitWebDriver on Linux). On Linux the driver starts the app.
+    On Windows the test starts the app itself with a WebView2 debugging port
+    (WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS, set for this process only) and
+    msedgedriver attaches to it (`debuggerAddress`, Microsoft's documented
+    mode for WebView2 apps). Letting msedgedriver launch the installed app
+    timed out on the runner ("DevToolsActivePort file doesn't exist",
+    WebView2 153).
  2. The privacy bar says "Processing locally": the host started the engine,
     checked it (SHA-256 in release builds) and network isolation is on.
  3. A synthetic document is dropped on the window. WebDriver cannot drag
@@ -40,6 +46,7 @@ import os
 import re
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -304,6 +311,57 @@ def assert_no_values(where: str, text: str, extra: tuple[str, ...] = ()) -> None
 # --- the test ------------------------------------------------------------------
 
 
+#: wry's own WebView2 arguments; the environment variable replaces them, so keep them.
+WRY_ARGS = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection"
+
+
+def free_port() -> int:
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port: int = probe.getsockname()[1]
+        return port
+
+
+def airlock_webviews() -> list[tuple[int, str]]:
+    """WebView2 browser processes using the app's data folder (Windows)."""
+    out = powershell(
+        "Get-CimInstance Win32_Process -Filter \"Name='msedgewebview2.exe'\" | "
+        'ForEach-Object { "$($_.ProcessId)`t$($_.CommandLine)" }'
+    )
+    found = []
+    for line in out.splitlines():
+        pid, _, command = line.partition("\t")
+        if pid.strip().isdigit() and "com.airlock.desktop" in command:
+            found.append((int(pid), command))
+    return found
+
+
+def launch_for_attach(app: Path) -> tuple[subprocess.Popen[bytes], int]:
+    """Start the app with a WebView2 debugging port; return it and the port."""
+    for pid, _ in airlock_webviews():
+        kill(pid)  # a leftover browser process would ignore the new arguments
+    wait_for(lambda: not airlock_webviews(), "earlier WebView2 processes to exit", 30)
+    port = free_port()
+    env = dict(os.environ)
+    env["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = f"--remote-debugging-port={port} {WRY_ARGS}"
+    proc = subprocess.Popen([str(app)], env=env)
+
+    def debugging() -> bool:
+        try:
+            with _opener.open(f"http://127.0.0.1:{port}/json/version", timeout=2):
+                return True
+        except OSError:
+            return False
+
+    try:
+        wait_for(debugging, "WebView2 to open its debugging port", 90)
+    except AssertionError:
+        for pid, command in airlock_webviews():
+            print(f"msedgewebview2 {pid}: {command[:400]}")
+        raise
+    return proc, port
+
+
 def start_driver(driver: str, native_driver: str | None) -> subprocess.Popen[bytes]:
     command = [driver, "--port", str(PORT)]
     if native_driver:
@@ -374,10 +432,16 @@ def run(args: argparse.Namespace) -> None:
     driver = start_driver(args.driver, args.native_driver)
     session: Session | None = None
     try:
-        session = Session(
-            f"http://127.0.0.1:{PORT}",
-            {"alwaysMatch": {"tauri:options": {"application": str(app)}}},
-        )
+        if WINDOWS:
+            _, debug_port = launch_for_attach(app)
+            capabilities: dict[str, Any] = {
+                "browserName": "webview2",
+                "ms:edgeOptions": {"debuggerAddress": f"127.0.0.1:{debug_port}"},
+            }
+            print(f"app started; WebView2 debugging port {debug_port}")
+        else:
+            capabilities = {"tauri:options": {"application": str(app)}}
+        session = Session(f"http://127.0.0.1:{PORT}", {"alwaysMatch": capabilities})
         status = wait_for(
             lambda: (
                 (text_of(session, ".trust__item[role=status]") or "").startswith(
