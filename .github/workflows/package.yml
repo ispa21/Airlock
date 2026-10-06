@@ -2,8 +2,7 @@ name: Package
 
 # Builds the Windows installers (with the WebView2 bootstrapper, and with
 # WebView2 inside for offline machines), then installs one on the runner,
-# checks it, drives its UI through WebDriver (tauri-driver) and uninstalls
-# it. Signing is used when the repository has the WINDOWS_CERTIFICATE
+# checks it and uninstalls it. Signing is used when the repository has the WINDOWS_CERTIFICATE
 # (base64 PFX) and WINDOWS_CERTIFICATE_PASSWORD secrets.
 
 on:
@@ -88,13 +87,13 @@ jobs:
           path: apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
           if-no-files-found: error
 
-      - name: tauri-driver (WebDriver for the UI test)
-        run: cargo install tauri-driver --version 2.1.0 --locked
-
-      - name: Install, check, drive the UI and uninstall
+      # The WebDriver UI test (installer-smoke.ps1 -TauriDriver) cannot reach the
+      # release app yet: wry's own WebView2 arguments override
+      # WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS, so no debugging port opens. It
+      # needs a test build of the app; see docs/ROADMAP.md (Phase 8).
+      - name: Install, check and uninstall
         shell: pwsh
         run: |
           $installer = Get-ChildItem apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe |
             Where-Object { $_.Name -notmatch "offline" } | Select-Object -First 1
-          ./packaging/windows/installer-smoke.ps1 -Installer $installer.FullName `
-            -TauriDriver (Get-Command tauri-driver).Source
+          ./packaging/windows/installer-smoke.ps1 -Installer $installer.FullName

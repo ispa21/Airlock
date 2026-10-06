@@ -346,10 +346,23 @@ restoring AI responses (Phase 12).
   `engine_ready` (integrity check passed), no engine process remained after
   closing, and the silent uninstall removed the files and rules. A first run
   failed on `notices.py` reading cargo's UTF-8 output as cp1252 (fixed).
-* Remaining: a tauri-driver (WebDriver) UI run on Windows (drop a file
-  through a simulated `tauri://drag-drop` event, scan, create and verify a
-  copy, Copy Text for AI, check the clipboard and the log) and the clean-VM
-  check in [PACKAGING.md](PACKAGING.md).
+* UI end-to-end test (`scripts/desktop_e2e.py`, tauri-driver): passes on
+  Linux against a development build (WebKitWebDriver, Xvfb): file drop via a
+  `tauri://drag-drop` event, scan, copy and its check, Copy Text for AI with
+  the clipboard read back, log free of values, Text for AI (Phase 12), engine
+  killed and restarted, no orphan process on close.
+* On Windows it does not run yet. The matching msedgedriver is fetched
+  (`edgedriver.ps1`, WebView2 153.0.4234.48), but msedgedriver cannot reach
+  the release app: launching it times out on `DevToolsActivePort`, and
+  starting the app with `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` does not help
+  because wry passes its own WebView2 arguments in code, which win (the
+  browser process command line showed no `--remote-debugging-port`). Fix:
+  a test build of the app that adds the debugging port through Tauri's
+  `additionalBrowserArgs`, driven in CI instead of the shipped installer.
+  The Package workflow runs the installer smoke test without the UI step
+  until then.
+* Remaining: the Windows UI run above and the clean-VM check in
+  [PACKAGING.md](PACKAGING.md).
 
 ## Phase 10 verification log
 
@@ -462,7 +475,8 @@ restoring AI responses (Phase 12).
   `PERSON_999` as written; the log had the four events and none of the
   values. A run with a name and a project gave "PERSON_001 (EMAIL_001) about
   ORGANIZATION_001 and PAN PAN_001" (the language model saw the project as an
-  organisation; a company rule gives `INTERNAL_PROJECT_001`).
+  organisation; a company rule gives `INTERNAL_PROJECT_001`). The Windows
+  run of this step waits for the Phase 8 WebDriver fix.
 * Not done here: a macOS Keychain-backed vault key, restoring responses in
   the browser extension, and provider adapters other than the clipboard (see
   the status table in REVERSIBLE_MASKING.md).

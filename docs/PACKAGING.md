@@ -56,11 +56,11 @@ all-users install, firewall rules present, the installed engine passes the
 smoke test, Chrome and Edge are registered and the engine answers as the
 extension's native-messaging host (`engine/packaging/bridge_smoke.py`), the
 installed app completes the engine handshake, no engine process is left after
-closing, the UI end-to-end test passes on the installed app (below), and the
+closing, and the
 silent uninstall removes the files, the rules and the browser registrations.
 
-The UI end-to-end test (`scripts/desktop_e2e.py`, standard library only)
-drives the installed app through WebDriver: `tauri-driver` (built in the
+The UI end-to-end test (`scripts/desktop_e2e.py`, standard library only;
+not in the workflow yet, see the Phase 8 log in ROADMAP.md) drives the installed app through WebDriver: `tauri-driver` (built in the
 workflow with `cargo install`) and the `msedgedriver` that matches the
 runner's WebView2 runtime (`packaging/windows/edgedriver.ps1`; a test tool,
 never shipped). The test starts the installed app with a WebView2 debugging
