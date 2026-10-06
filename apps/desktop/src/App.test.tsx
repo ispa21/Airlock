@@ -1,11 +1,12 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
 import type { DropHandlers, Platform } from "./engine/platform";
 import { PlatformProvider } from "./engine/PlatformContext";
 import type {
+  ConversationStatus,
   EngineError,
   ExtractSummary,
   InspectResult,
@@ -13,6 +14,10 @@ import type {
   PolicyUpdate,
   Profile,
   Progress,
+  ProtectTextResult,
+  ResponseAnalysis,
+  ResponseRestore,
+  ResponseReview,
   RiskSummary,
   RuleList,
   ScanResult,
@@ -204,6 +209,58 @@ const CHECKED: VerifyResult = {
   duration_ms: 300,
 };
 
+const PROTECTED: ProtectTextResult = {
+  text: "Write an email to PERSON_001 about INTERNAL_PROJECT_001.",
+  withheld: false,
+  mode: "reversible",
+  conversation_id: "AIRLOCK-2026-001928",
+  changed: 2,
+  blocked: 0,
+  placeholders: 2,
+  actions: { MASK: 2 },
+  findings: [
+    { entity_type: "PERSON", entity_label: "Person name", category: "PERSONAL", preview: "R•••• S•••••", action: "MASK" },
+    {
+      entity_type: "INTERNAL_PROJECT", entity_label: "Internal project", category: "INTELLECTUAL_PROPERTY",
+      preview: "P••••• P••••••", action: "MASK",
+    },
+  ],
+  profile: { id: "company-default", name: "Company Default" },
+  ner: "used",
+  check: { status: "safe", remaining_count: 0, new_count: 0, remaining: [], kept_count: 0 },
+};
+
+const CONVERSATION: ConversationStatus = {
+  conversation_id: "AIRLOCK-2026-001928",
+  started: 1_791_000_000,
+  updated: 1_791_000_000,
+  placeholders: 2,
+  types: { PERSON: 1, INTERNAL_PROJECT: 1 },
+};
+
+const REPLY = "Dear PERSON_001, INTERNAL_PROJECT_001 is on track. PERSON_999 will join.";
+
+const ANALYSIS: ResponseAnalysis = {
+  placeholders: 2, occurrences: 2, types: { PERSON: 1, INTERNAL_PROJECT: 1 }, unknown: ["PERSON_999"], unknown_count: 1,
+};
+
+const REVIEW: ResponseReview = {
+  ...ANALYSIS,
+  items: [
+    { placeholder: "PERSON_001", original: "Rahul Sharma", entity_type: "PERSON", entity_label: "Person name", count: 1 },
+    {
+      placeholder: "INTERNAL_PROJECT_001", original: "Project Phoenix", entity_type: "INTERNAL_PROJECT",
+      entity_label: "Internal project", count: 1,
+    },
+  ],
+};
+
+const RESTORED: ResponseRestore = {
+  ...ANALYSIS,
+  text: "Dear Rahul Sharma, Project Phoenix is on track. PERSON_999 will join.",
+  restored: 2,
+};
+
 function fakePlatform(overrides: Partial<Platform> = {}) {
   let drop: DropHandlers | undefined;
   const platform: Platform = {
@@ -240,7 +297,7 @@ function fakePlatform(overrides: Partial<Platform> = {}) {
     sanitize: vi.fn().mockResolvedValue(COPY),
     verify: vi.fn().mockResolvedValue(CHECKED),
     saveCopy: vi.fn().mockResolvedValue({ saved: true, file_name: "Contract (Airlock protected).docx" }),
-    copyText: vi.fn().mockResolvedValue("Contact [PERSON_1] at [EMAIL_1].\n"),
+    copyText: vi.fn().mockResolvedValue("Contact PERSON_001 at EMAIL_001.\n"),
     writeClipboard: vi.fn().mockResolvedValue(undefined),
     licenseStatus: vi.fn().mockResolvedValue(UNLICENSED),
     importLicenseFile: vi.fn().mockResolvedValue(LICENSED),
@@ -249,6 +306,14 @@ function fakePlatform(overrides: Partial<Platform> = {}) {
     removeLicense: vi.fn().mockResolvedValue(UNLICENSED),
     discardCopy: vi.fn().mockResolvedValue(undefined),
     cancel: vi.fn().mockResolvedValue(undefined),
+    protectText: vi.fn().mockResolvedValue(PROTECTED),
+    startConversation: vi.fn().mockResolvedValue("AIRLOCK-2026-001928"),
+    conversationStatus: vi.fn().mockResolvedValue(CONVERSATION),
+    listConversations: vi.fn().mockResolvedValue([CONVERSATION]),
+    forgetConversation: vi.fn().mockResolvedValue(undefined),
+    analyzeResponse: vi.fn().mockResolvedValue(ANALYSIS),
+    reviewResponse: vi.fn().mockResolvedValue(REVIEW),
+    restoreResponse: vi.fn().mockResolvedValue(RESTORED),
     onFileDrop: vi.fn(async (handlers: DropHandlers) => {
       drop = handlers;
       return () => {};
@@ -470,7 +535,12 @@ describe("App", () => {
     await screen.findByRole("heading", { name: "What Airlock found" });
 
     await userEvent.click(screen.getByRole("button", { name: "Create Protected Copy" }));
-    expect(platform.sanitize).toHaveBeenCalledWith("scan_test", expect.stringMatching(/^scan-/), expect.any(Function));
+    expect(platform.sanitize).toHaveBeenCalledWith(
+      "scan_test",
+      expect.stringMatching(/^scan-/),
+      expect.any(Function),
+      null,
+    );
     expect(await screen.findByText("Contract (Airlock protected).docx")).toBeInTheDocument();
     expect(screen.getByText("2 replaced by placeholders")).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Removed from the copy" })).toHaveTextContent("Macros (VBA project)");
@@ -496,7 +566,7 @@ describe("App", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Copy Text for AI" }));
     expect(platform.copyText).toHaveBeenCalledWith("art_0123456789abcdef", false);
-    expect(platform.writeClipboard).toHaveBeenCalledWith("Contact [PERSON_1] at [EMAIL_1].\n");
+    expect(platform.writeClipboard).toHaveBeenCalledWith("Contact PERSON_001 at EMAIL_001.\n");
     expect(await screen.findByText(/Copied the protected text \(33 characters\)/)).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Save as Text…" }));
@@ -817,6 +887,18 @@ describe("App", () => {
     expect(await screen.findByLabelText("Action for E-mail address")).toHaveValue("REDACT");
   });
 
+  it("deletes every stored conversation", async () => {
+    const { platform } = fakePlatform();
+    renderApp(platform);
+    await screen.findByText("Processing locally");
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    const section = await screen.findByRole("region", { name: "Text for AI conversations" });
+    await waitFor(() => expect(section).toHaveTextContent("1 conversation"));
+    await userEvent.click(within(section).getByRole("button", { name: "Delete All" }));
+    expect(platform.forgetConversation).toHaveBeenCalledWith("AIRLOCK-2026-001928");
+    await waitFor(() => expect(section).toHaveTextContent("0 conversations"));
+  });
+
   it("forgets every value marked not sensitive", async () => {
     const { platform } = fakePlatform({ allowListCount: vi.fn().mockResolvedValue(3) });
     renderApp(platform);
@@ -903,5 +985,170 @@ describe("App", () => {
     renderApp(platform);
     expect(await screen.findByText("Network isolation inactive")).toBeInTheDocument();
     expect(screen.queryByText("Processing locally")).not.toBeInTheDocument();
+  });
+});
+
+describe("Text for AI (Phase 12)", () => {
+  afterEach(() => localStorage.clear());
+
+  async function openTextView(platform: Platform) {
+    renderApp(platform);
+    await screen.findByText("Processing locally");
+    await userEvent.click(screen.getByRole("tab", { name: "Text for AI" }));
+  }
+
+  async function protectPrompt() {
+    await userEvent.type(
+      screen.getByLabelText("Your prompt or text"),
+      "Write an email to Rahul Sharma about Project Phoenix.",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Protect" }));
+  }
+
+  it("protects a prompt, sends only checked text and restores the response after a review", async () => {
+    const { platform } = fakePlatform();
+    await openTextView(platform);
+    expect(screen.getByRole("list", { name: "Where your data goes" })).toHaveTextContent("Leaves your device");
+    await protectPrompt();
+
+    expect(platform.startConversation).toHaveBeenCalledTimes(1);
+    expect(platform.protectText).toHaveBeenCalledWith("Write an email to Rahul Sharma about Project Phoenix.", {
+      mode: "reversible",
+      conversationId: "AIRLOCK-2026-001928",
+    });
+    expect(await screen.findByText(/Safe to send/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Text to send")).toHaveValue(PROTECTED.text);
+    expect(screen.getByText("2 items protected · 2 placeholders the AI will see")).toBeInTheDocument();
+    expect(await screen.findByText(/2 placeholders kept on this device/)).toBeInTheDocument();
+    expect(localStorage.getItem("airlock.conversation")).toBe("AIRLOCK-2026-001928");
+
+    await userEvent.click(screen.getByRole("button", { name: "Copy for AI" }));
+    expect(platform.writeClipboard).toHaveBeenCalledWith(PROTECTED.text);
+    expect(await screen.findByText(/Paste it into your AI tool/)).toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText("Paste the AI's response"), REPLY);
+    await userEvent.click(screen.getByRole("button", { name: "Check response" }));
+    expect(platform.analyzeResponse).toHaveBeenCalledWith({ conversation_id: "AIRLOCK-2026-001928" }, REPLY);
+    expect(await screen.findByText("AI response received · 2 placeholders")).toBeInTheDocument();
+    expect(screen.getByText(/not created here, so it stays as written: PERSON_999/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Review before restoring" }));
+    const table = await screen.findByRole("table", { name: "What each placeholder becomes" });
+    expect(table).toHaveTextContent("PERSON_001");
+    expect(table).toHaveTextContent("Rahul Sharma");
+    await userEvent.click(screen.getByRole("button", { name: "Restore" }));
+    expect(platform.restoreResponse).toHaveBeenCalledWith({ conversation_id: "AIRLOCK-2026-001928" }, REPLY);
+    expect(await screen.findByText(/Restored 2 placeholders on this device/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Restored response")).toHaveValue(RESTORED.text);
+    await userEvent.click(screen.getByRole("button", { name: "Copy restored text" }));
+    expect(platform.writeClipboard).toHaveBeenLastCalledWith(RESTORED.text);
+  });
+
+  it("keeps a response anonymized on request", async () => {
+    const { platform } = fakePlatform();
+    await openTextView(platform);
+    await protectPrompt();
+    await screen.findByText(/Safe to send/);
+    await userEvent.type(screen.getByLabelText("Paste the AI's response"), REPLY);
+    await userEvent.click(screen.getByRole("button", { name: "Check response" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Keep anonymized" }));
+    expect(screen.getByText(/Kept anonymized/)).toBeInTheDocument();
+    expect(platform.restoreResponse).not.toHaveBeenCalled();
+  });
+
+  it("never sends text the outbound check stopped", async () => {
+    const remaining = {
+      reason: "protected" as const,
+      entity_type: "INTERNAL_PROJECT",
+      entity_label: "Internal project",
+      preview: "P•••••• P••••••",
+      location: { kind: "body", label: "Text" },
+      hidden: false,
+    };
+    const protectText = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ...PROTECTED,
+        check: { status: "blocked", remaining_count: 1, new_count: 0, remaining: [remaining], kept_count: 0 },
+      })
+      .mockResolvedValueOnce({
+        ...PROTECTED,
+        check: {
+          status: "review", remaining_count: 0, new_count: 1, remaining: [{ ...remaining, reason: "new" }], kept_count: 0,
+        },
+      });
+    const { platform } = fakePlatform({ protectText });
+    await openTextView(platform);
+    await protectPrompt();
+    expect(await screen.findByText("Send blocked · Review")).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Found in the protected text" })).toHaveTextContent("Internal project");
+    expect(screen.getByRole("button", { name: "Copy for AI" })).toBeDisabled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Protect" }));
+    expect(await screen.findByText(/found something the first pass did not protect/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy for AI" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("checkbox", { name: /want to send the text anyway/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Copy for AI" }));
+    expect(platform.writeClipboard).toHaveBeenCalledWith(PROTECTED.text);
+  });
+
+  it("withholds everything when Block sensitive content is chosen", async () => {
+    const protectText = vi.fn().mockResolvedValue({
+      ...PROTECTED, text: null, withheld: true, mode: "block", blocked: 2, check: null,
+    });
+    const { platform } = fakePlatform({ protectText });
+    await openTextView(platform);
+    await userEvent.selectOptions(screen.getByLabelText("Privacy mode"), "block");
+    expect(screen.getByText(/Airlock produces nothing to send/)).toBeInTheDocument();
+    await protectPrompt();
+    expect(protectText).toHaveBeenCalledWith(expect.any(String), {
+      mode: "block",
+      conversationId: "AIRLOCK-2026-001928",
+    });
+    expect(await screen.findByText("Nothing to send: 2 sensitive items found")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy for AI" })).not.toBeInTheDocument();
+  });
+
+  it("continues the saved conversation and deletes it on request", async () => {
+    localStorage.setItem("airlock.conversation", "AIRLOCK-2026-001928");
+    const { platform } = fakePlatform();
+    await openTextView(platform);
+    expect(await screen.findByText(/2 placeholders kept on this device/)).toBeInTheDocument();
+    await protectPrompt();
+    expect(platform.startConversation).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "New conversation" }));
+    await userEvent.click(screen.getByRole("button", { name: "Delete and start new" }));
+    expect(platform.forgetConversation).toHaveBeenCalledWith("AIRLOCK-2026-001928");
+    await waitFor(() => expect(screen.queryByText("AIRLOCK-2026-001928")).not.toBeInTheDocument());
+    expect(localStorage.getItem("airlock.conversation")).toBeNull();
+  });
+
+  it("forgets a saved conversation the engine no longer has", async () => {
+    localStorage.setItem("airlock.conversation", "AIRLOCK-2026-000001");
+    const { platform } = fakePlatform({
+      conversationStatus: vi.fn().mockRejectedValue({ kind: "conversation_not_found", message: "gone" }),
+    });
+    await openTextView(platform);
+    await waitFor(() => expect(localStorage.getItem("airlock.conversation")).toBeNull());
+    expect(screen.queryByText("AIRLOCK-2026-000001")).not.toBeInTheDocument();
+  });
+
+  it("lets a protected copy share the conversation's placeholders and restores a response for it", async () => {
+    localStorage.setItem("airlock.conversation", "AIRLOCK-2026-001928");
+    const { platform } = fakePlatform();
+    await scanned(platform);
+    await userEvent.click(screen.getByRole("checkbox", { name: /same placeholders as conversation AIRLOCK-2026-001928/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Create Protected Copy" }));
+    expect(platform.sanitize).toHaveBeenCalledWith(
+      "scan_test",
+      expect.any(String),
+      expect.any(Function),
+      "AIRLOCK-2026-001928",
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "Restore an AI response…" }));
+    await userEvent.type(screen.getByLabelText("Paste the AI's response"), REPLY);
+    await userEvent.click(screen.getByRole("button", { name: "Check response" }));
+    expect(platform.analyzeResponse).toHaveBeenCalledWith({ artifact_id: COPY.artifact_id }, REPLY);
   });
 });

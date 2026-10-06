@@ -5,6 +5,7 @@ import { ErrorNotice } from "./components/ErrorNotice";
 import { ExtractionReport } from "./components/ExtractionReport";
 import { FindingsReport, type ActionHandler, type TeachHandler } from "./components/FindingsReport";
 import { ProtectedCopy, type CopyState } from "./components/ProtectedCopy";
+import { TextProtect } from "./components/TextProtect";
 import { RiskCard } from "./components/RiskCard";
 import { Settings } from "./components/Settings";
 import { AirlockMark, ChevronIcon } from "./components/icons";
@@ -37,6 +38,17 @@ type Scan =
 let scanCounter = 0;
 const newTag = () => `scan-${Date.now().toString(36)}-${(scanCounter += 1)}`;
 
+/** The current conversation's id (not a secret: the mapping stays in the engine's vault). */
+const CONVERSATION_KEY = "airlock.conversation";
+
+function savedConversation(): string | null {
+  try {
+    return localStorage.getItem(CONVERSATION_KEY);
+  } catch {
+    return null;
+  }
+}
+
 export function App() {
   const platform = usePlatform();
   const [engine, setEngine] = useState<EngineState>({ state: "starting" });
@@ -52,6 +64,9 @@ export function App() {
   const [copyNote, setCopyNote] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [view, setView] = useState<"file" | "text">("file");
+  const [conversationId, setConversationState] = useState<string | null>(savedConversation);
+  const [shareConversation, setShareConversation] = useState(false);
   // Confirms a "Teach Airlock" step or a refresh, next to the findings.
   const [findingsNote, setFindingsNote] = useState<string | null>(null);
   const [profilesVersion, setProfilesVersion] = useState(0);
@@ -61,6 +76,17 @@ export function App() {
   const runningTag = useRef<string | null>(null);
   // The engine keeps a finished scan's text in memory until told to forget it.
   const lastScanId = useRef<string | null>(null);
+
+  const setConversation = useCallback((id: string | null) => {
+    setConversationState(id);
+    if (!id) setShareConversation(false);
+    try {
+      if (id) localStorage.setItem(CONVERSATION_KEY, id);
+      else localStorage.removeItem(CONVERSATION_KEY);
+    } catch {
+      // The id is only a convenience; without storage the next start begins a new conversation.
+    }
+  }, []);
 
   const connect = useCallback(async () => {
     setEngine({ state: "starting" });
@@ -131,7 +157,13 @@ export function App() {
     let unsubscribe: (() => void) | undefined;
     let cancelled = false;
     void platform
-      .onFileDrop({ onHover: setHovering, onDrop: (paths) => void load(paths) })
+      .onFileDrop({
+        onHover: setHovering,
+        onDrop: (paths) => {
+          setView("file");
+          void load(paths);
+        },
+      })
       .then((stop) => {
         if (cancelled) stop();
         else unsubscribe = stop;
@@ -292,7 +324,8 @@ export function App() {
     setCopy({ status: "running" });
     let artifactId: string | null = null;
     try {
-      const result = await platform.sanitize(scanId, tag, () => undefined);
+      const workspace = shareConversation && conversationId ? conversationId : null;
+      const result = await platform.sanitize(scanId, tag, () => undefined, workspace);
       artifactId = result.artifact_id;
       if (copyTag.current !== tag) {
         void platform.discardCopy(result.artifact_id).catch(() => undefined);
@@ -316,7 +349,7 @@ export function App() {
     } finally {
       if (copyTag.current === tag) copyTag.current = null;
     }
-  }, [platform, scan, copy]);
+  }, [platform, scan, copy, shareConversation, conversationId]);
 
   const saveCopy = useCallback(
     async (asText: boolean, acknowledgeReview: boolean) => {
@@ -413,6 +446,36 @@ export function App() {
               <p>Protect sensitive data before sending it to AI.</p>
             </section>
 
+            <div className="views" role="tablist" aria-label="What to protect">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={view === "file"}
+                className="views__tab"
+                onClick={() => setView("file")}
+              >
+                A file
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={view === "text"}
+                className="views__tab"
+                disabled={engine.state !== "ready"}
+                onClick={() => setView("text")}
+              >
+                Text for AI
+              </button>
+            </div>
+          </>
+        )}
+
+        {!settingsOpen && view === "text" && (
+          <TextProtect conversationId={conversationId} onConversation={setConversation} />
+        )}
+
+        {!settingsOpen && view === "file" && (
+          <>
             <DropZone
               selection={selection}
               hovering={hovering}
@@ -470,6 +533,11 @@ export function App() {
                     policy={scan.result.policy}
                     note={copyNote}
                     busy={exporting}
+                    workspace={
+                      conversationId
+                        ? { conversationId, shared: shareConversation, onShare: setShareConversation }
+                        : null
+                    }
                     actions={{
                       onCreate: () => void createCopy(),
                       onCancel: cancelCopy,

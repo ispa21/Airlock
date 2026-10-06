@@ -1,4 +1,5 @@
 import type {
+  ConversationStatus,
   EngineInfo,
   ExportResult,
   InspectResult,
@@ -6,10 +7,16 @@ import type {
   NewRule,
   Override,
   PolicyUpdate,
+  PrivacyMode,
   Profile,
   ProfileChanges,
   ProfileList,
   Progress,
+  ProtectTextResult,
+  ResponseAnalysis,
+  ResponseRestore,
+  ResponseReview,
+  RestoreScope,
   Rule,
   RuleList,
   SanitizeResult,
@@ -59,8 +66,16 @@ export interface Platform {
   updateProfile(id: string, changes: ProfileChanges): Promise<Profile>;
   deleteProfile(id: string): Promise<void>;
   setDefaultProfile(id: string): Promise<void>;
-  /** Write the protected copy (in Airlock's private work folder). Cancellable by `tag`. */
-  sanitize(scanId: string, tag: string, onProgress: (progress: Progress) => void): Promise<SanitizeResult>;
+  /**
+   * Write the protected copy (in Airlock's private work folder). Cancellable by `tag`.
+   * With `conversationId` the copy shares that conversation's placeholders (privacy workspace).
+   */
+  sanitize(
+    scanId: string,
+    tag: string,
+    onProgress: (progress: Progress) => void,
+    conversationId?: string | null,
+  ): Promise<SanitizeResult>;
   licenseStatus(): Promise<LicenseStatus>;
   /** The host shows the open dialog and checks the file. */
   importLicenseFile(): Promise<LicenseStatus>;
@@ -86,6 +101,24 @@ export interface Platform {
   /** Cancel the scan started with `tag`; it then rejects with kind "cancelled". */
   cancel(tag: string): Promise<void>;
   pickFile(): Promise<string | null>;
+  /**
+   * Protect a prompt or other text for an AI tool, locally. In a conversation the
+   * same value keeps its placeholder in every turn. The result carries the outbound check.
+   */
+  protectText(text: string, options: { mode: PrivacyMode; conversationId: string | null }): Promise<ProtectTextResult>;
+  /** A new conversation scope; returns its id (AIRLOCK-2026-001928). */
+  startConversation(): Promise<string>;
+  conversationStatus(conversationId: string): Promise<ConversationStatus>;
+  /** Conversations with stored placeholders (ids, times and counts only). */
+  listConversations(): Promise<ConversationStatus[]>;
+  /** Delete a conversation's stored placeholders for good. */
+  forgetConversation(conversationId: string): Promise<void>;
+  /** Count the placeholders in an AI response (no values). */
+  analyzeResponse(scope: RestoreScope, text: string): Promise<ResponseAnalysis>;
+  /** Each placeholder in the response and its original, for review before restoring. */
+  reviewResponse(scope: RestoreScope, text: string): Promise<ResponseReview>;
+  /** Put the originals back into the response, on this device. */
+  restoreResponse(scope: RestoreScope, text: string): Promise<ResponseRestore>;
   /** Subscribe to OS file drops. Returns an unsubscribe function. */
   onFileDrop(handlers: DropHandlers): Promise<() => void>;
 }

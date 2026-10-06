@@ -43,6 +43,14 @@ const ALLOWED_METHODS: &[&str] = &[
     "rules.update",
     "rules.delete",
     "rules.add_category",
+    "text.protect",
+    "conversation.start",
+    "conversation.status",
+    "conversation.list",
+    "conversation.forget",
+    "response.analyze",
+    "response.review",
+    "response.restore",
 ];
 
 fn timeout_for(method: &str) -> Duration {
@@ -60,6 +68,9 @@ fn timeout_for(method: &str) -> Duration {
         // Reading the copy back is an extraction (≤ 15 min) plus detection.
         "verify.run" => Duration::from_secs(1_500),
         "export.text" => Duration::from_secs(60),
+        // Detection twice (the text, then the outbound check), language model included.
+        "text.protect" => Duration::from_secs(300),
+        "response.analyze" | "response.review" | "response.restore" => Duration::from_secs(60),
         _ => Duration::from_secs(10),
     }
 }
@@ -223,6 +234,20 @@ mod tests {
         assert!(timeout_for("scan.refresh") > timeout_for("system.health"));
         assert!(ALLOWED_METHODS.contains(&"verify.run"));
         assert!(timeout_for("verify.run") >= timeout_for("scan.start"));
+    }
+
+    #[test]
+    fn text_protection_and_restoration_are_exposed() {
+        for method in [
+            "text.protect",
+            "conversation.start",
+            "conversation.forget",
+            "response.review",
+            "response.restore",
+        ] {
+            assert!(ALLOWED_METHODS.contains(&method), "{method}");
+        }
+        assert!(timeout_for("text.protect") > timeout_for("response.restore"));
     }
 
     #[test]

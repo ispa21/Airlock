@@ -13,10 +13,17 @@ import {
   type NewRule,
   type Override,
   type PolicyUpdate,
+  type ConversationStatus,
+  type PrivacyMode,
   type Profile,
   type ProfileChanges,
   type ProfileList,
   type Progress,
+  type ProtectTextResult,
+  type ResponseAnalysis,
+  type ResponseRestore,
+  type ResponseReview,
+  type RestoreScope,
   type Rule,
   type RuleList,
   type SanitizeResult,
@@ -92,8 +99,44 @@ export const tauriPlatform: Platform = {
     return withProgress(tag, onProgress, () => call<ScanResult>("scan.start", { path, profile_id: profileId }, tag));
   },
 
-  sanitize(scanId: string, tag: string, onProgress: (progress: Progress) => void) {
-    return withProgress(tag, onProgress, () => call<SanitizeResult>("sanitize.run", { scan_id: scanId }, tag));
+  sanitize(scanId: string, tag: string, onProgress: (progress: Progress) => void, conversationId?: string | null) {
+    const params: Record<string, unknown> = { scan_id: scanId };
+    if (conversationId) params.conversation_id = conversationId;
+    return withProgress(tag, onProgress, () => call<SanitizeResult>("sanitize.run", params, tag));
+  },
+
+  protectText(text: string, options: { mode: PrivacyMode; conversationId: string | null }) {
+    const params: Record<string, unknown> = { text, mode: options.mode };
+    if (options.conversationId) params.conversation_id = options.conversationId;
+    return call<ProtectTextResult>("text.protect", params);
+  },
+
+  async startConversation() {
+    return (await call<{ conversation_id: string }>("conversation.start")).conversation_id;
+  },
+
+  conversationStatus(conversationId: string) {
+    return call<ConversationStatus>("conversation.status", { conversation_id: conversationId });
+  },
+
+  async listConversations() {
+    return (await call<{ conversations: ConversationStatus[] }>("conversation.list")).conversations;
+  },
+
+  async forgetConversation(conversationId: string) {
+    await call<{ ok: boolean }>("conversation.forget", { conversation_id: conversationId });
+  },
+
+  analyzeResponse(scope: RestoreScope, text: string) {
+    return call<ResponseAnalysis>("response.analyze", { ...scope, text });
+  },
+
+  reviewResponse(scope: RestoreScope, text: string) {
+    return call<ResponseReview>("response.review", { ...scope, text });
+  },
+
+  restoreResponse(scope: RestoreScope, text: string) {
+    return call<ResponseRestore>("response.restore", { ...scope, text });
   },
 
   licenseStatus() {

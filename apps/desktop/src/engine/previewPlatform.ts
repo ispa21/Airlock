@@ -4,6 +4,7 @@
  */
 import type { DropHandlers, Platform } from "./platform";
 import type {
+  ConversationStatus,
   EngineError,
   ExtractSummary,
   Finding,
@@ -15,8 +16,13 @@ import type {
   PolicyAction,
   PolicySummary,
   PolicyUpdate,
+  PrivacyMode,
   Profile,
   Progress,
+  ProtectTextResult,
+  ResponseRestore,
+  ResponseReview,
+  RestoreScope,
   RiskSummary,
   Rule,
   SanitizeResult,
@@ -35,6 +41,62 @@ const FAMILIES: Record<string, [string, string, FormatFamily]> = {
 };
 
 const cancelled = new Set<string>();
+
+// --- text protection (preview only: a few patterns, conversations in memory) ---
+const PREVIEW_PATTERNS: [string, string, RegExp][] = [
+  ["EMAIL", "E-mail address", /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g],
+  ["PHONE", "Phone number", /\+?\d[\d -]{8,}\d/g],
+  ["PERSON", "Person name", /\b(?:Rahul Sharma|Asha Rao|Vikram Iyer)\b/g],
+  ["INTERNAL_PROJECT", "Internal project", /\bProject [A-Z][a-z]+\b/g],
+];
+const previewConversations = new Map<string, { started: number; mapping: Map<string, [string, string]> }>();
+
+function previewMapping(scope: RestoreScope): Map<string, [string, string]> {
+  const id = "conversation_id" in scope ? scope.conversation_id : scope.artifact_id;
+  const conversation = previewConversations.get(id);
+  if (!conversation) {
+    const error: EngineError = {
+      kind: "conversation_not_found",
+      message: "Airlock has no stored placeholders for this conversation.",
+      next_step: "Start a new conversation.",
+      original_affected: false,
+    };
+    throw error;
+  }
+  return conversation.mapping;
+}
+
+function previewRestore(scope: RestoreScope, text: string): ResponseRestore & ResponseReview {
+  const mapping = previewMapping(scope);
+  const found = new Map<string, number>();
+  const restored = text.replace(/(?<![\w])([A-Z][A-Z_]*_\d{3,})(?![\w])/g, (token: string) => {
+    const entry = mapping.get(token);
+    if (!entry) return token;
+    found.set(token, (found.get(token) ?? 0) + 1);
+    return entry[0];
+  });
+  const unknown = [...new Set(text.match(/(?<![\w])[A-Z][A-Z_]*_\d{3,}(?![\w])/g) ?? [])].filter(
+    (t) => !mapping.has(t),
+  );
+  const types: Record<string, number> = {};
+  for (const token of found.keys()) types[mapping.get(token)![1]] = (types[mapping.get(token)![1]] ?? 0) + 1;
+  return {
+    text: restored,
+    restored: [...found.values()].reduce((a, b) => a + b, 0),
+    placeholders: found.size,
+    occurrences: [...found.values()].reduce((a, b) => a + b, 0),
+    types,
+    unknown,
+    unknown_count: unknown.length,
+    items: [...found].map(([placeholder, count]) => ({
+      placeholder,
+      original: mapping.get(placeholder)![0],
+      entity_type: mapping.get(placeholder)![1],
+      entity_label: PREVIEW_PATTERNS.find(([t]) => t === mapping.get(placeholder)![1])?.[1] ?? "Item",
+      count,
+    })),
+  };
+}
 
 const PREVIEW_SUMMARY: ExtractSummary = {
   format: "pdf",
@@ -471,7 +533,7 @@ export const previewPlatform: Platform = {
   },
 
   async copyText() {
-    return "Q3 board report for [INTERNAL_PROJECT_1]. Contact [PERSON_1] at [EMAIL_1].\n";
+    return "Q3 board report for INTERNAL_PROJECT_001. Contact PERSON_001 at EMAIL_001.\n";
   },
 
   async writeClipboard(text: string) {
@@ -486,6 +548,81 @@ export const previewPlatform: Platform = {
 
   async pickFile() {
     return "C:\\Users\\preview\\Documents\\Q3 Board Report.pdf";
+  },
+
+  async protectText(text: string, options: { mode: PrivacyMode; conversationId: string | null }) {
+    await delay(300);
+    const mapping = options.conversationId
+      ? previewMapping({ conversation_id: options.conversationId })
+      : new Map<string, [string, string]>();
+    const findings: ProtectTextResult["findings"] = [];
+    let protectedText = text;
+    for (const [type, label, pattern] of PREVIEW_PATTERNS) {
+      protectedText = protectedText.replace(pattern, (value: string) => {
+        findings.push({ entity_type: type, entity_label: label, category: "PERSONAL", preview: "••••", action: "MASK" });
+        if (options.mode === "redact") return "[REDACTED]";
+        const existing = [...mapping].find(([, [original, t]]) => original === value && t === type);
+        if (existing) return existing[0];
+        const n = [...mapping.values()].filter(([, t]) => t === type).length + 1;
+        const placeholder = `${type}_${String(n).padStart(3, "0")}`;
+        mapping.set(placeholder, [value, type]);
+        return placeholder;
+      });
+    }
+    const withheld = options.mode === "block" && findings.length > 0;
+    return {
+      text: withheld ? null : protectedText,
+      withheld,
+      mode: options.mode,
+      conversation_id: options.conversationId,
+      changed: findings.length,
+      blocked: 0,
+      placeholders: new Set(protectedText.match(/[A-Z][A-Z_]*_\d{3,}/g) ?? []).size,
+      actions: { MASK: findings.length },
+      findings,
+      profile: { id: "company-default", name: "Company Default" },
+      ner: "used",
+      check: withheld
+        ? null
+        : { status: "safe" as const, remaining_count: 0, new_count: 0, remaining: [], kept_count: 0 },
+    };
+  },
+
+  async startConversation() {
+    const id = `AIRLOCK-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 1e6)).padStart(6, "0")}`;
+    previewConversations.set(id, { started: Date.now() / 1000, mapping: new Map() });
+    return id;
+  },
+
+  async conversationStatus(conversationId: string): Promise<ConversationStatus> {
+    const mapping = previewMapping({ conversation_id: conversationId });
+    const types: Record<string, number> = {};
+    for (const [, type] of mapping.values()) types[type] = (types[type] ?? 0) + 1;
+    const started = previewConversations.get(conversationId)!.started;
+    return { conversation_id: conversationId, started, updated: started, placeholders: mapping.size, types };
+  },
+
+  async listConversations() {
+    return Promise.all([...previewConversations.keys()].map((id) => previewPlatform.conversationStatus(id)));
+  },
+
+  async forgetConversation(conversationId: string) {
+    previewConversations.delete(conversationId);
+  },
+
+  async analyzeResponse(scope: RestoreScope, text: string) {
+    const { placeholders, occurrences, types, unknown, unknown_count } = previewRestore(scope, text);
+    return { placeholders, occurrences, types, unknown, unknown_count };
+  },
+
+  async reviewResponse(scope: RestoreScope, text: string) {
+    const { text: _restored, restored: _count, ...review } = previewRestore(scope, text);
+    return review;
+  },
+
+  async restoreResponse(scope: RestoreScope, text: string) {
+    const { items: _items, ...restore } = previewRestore(scope, text);
+    return restore;
   },
 
   async onFileDrop({ onHover, onDrop }: DropHandlers) {

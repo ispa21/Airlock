@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import threading
 import time
 from collections import Counter
-from pathlib import Path
 from typing import Any
 
 from airlock_engine import safelog
+from airlock_engine.api.vaults import VaultHolder
 from airlock_engine.core import errors
 from airlock_engine.core.models import Action
 from airlock_engine.extraction import isolation
@@ -20,50 +19,23 @@ from airlock_engine.ipc.server import (
     require_str,
 )
 from airlock_engine.masking.artifacts import ArtifactStore
+from airlock_engine.masking.conversations import ConversationNotFound
 from airlock_engine.masking.masker import BlockedFindings, build_plan
 from airlock_engine.masking.pdf_text import pdf_sections
-from airlock_engine.masking.vault import Vault, VaultEntry, VaultError
+from airlock_engine.masking.vault import VaultEntry, VaultError
 from airlock_engine.scan import SessionStore
-from airlock_engine.security.keyprotect import KeyProtectionError, MemoryProtector
-from airlock_engine.storage import Storage, StorageError
 from airlock_engine.verification.verifier import CopyCheck, normalize
 
 #: Text accepted by vault.restore (an AI response), in characters.
 MAX_RESTORE_CHARS = 2_000_000
 
 
-class _VaultHolder:
-    """Opens the vault lazily; a broken vault never blocks scanning."""
-
-    def __init__(self, storage: Storage, directory: Path | None) -> None:
-        self._storage = storage
-        self._directory = directory
-        self._vault: Vault | None = None
-        self._lock = threading.Lock()
-
-    def get(self) -> Vault:
-        with self._lock:
-            if self._vault is None:
-                try:
-                    protector = (
-                        self._storage.key_protector() if self._directory else MemoryProtector()
-                    )
-                    self._vault = Vault(self._directory, protector)
-                    self._vault.purge()
-                except (StorageError, VaultError, KeyProtectionError, OSError) as exc:
-                    raise errors.vault_unavailable() from exc
-            return self._vault
-
-
 def register(
     registry: MethodRegistry,
-    storage: Storage,
     sessions: SessionStore,
     artifacts: ArtifactStore,
-    vault_dir: Path | None,
+    vaults: VaultHolder,
 ) -> None:
-    vaults = _VaultHolder(storage, vault_dir)
-
     def run(params: dict[str, Any], ctx: RequestContext) -> dict[str, Any]:
         """Create the protected copy for a scan, using its current decisions.
 
@@ -76,13 +48,27 @@ def register(
         strip = params.get("strip_metadata", True)
         if not isinstance(strip, bool):
             raise InvalidParams("'strip_metadata' must be a boolean")
+        workspace = params.get("conversation_id")
+        if workspace is not None and (not isinstance(workspace, str) or len(workspace) > 64):
+            raise InvalidParams("'conversation_id' must be a string")
         meta = session.meta
         with session.lock:
             decision = session.decision or session.redecide()
             try:
-                plan = build_plan(session.document, decision)
+                if workspace is None:
+                    plan = build_plan(session.document, decision)
+                else:
+                    # Privacy workspace: the copy shares the conversation's placeholders.
+                    with vaults.conversations.open(workspace) as seed:
+                        plan = build_plan(session.document, decision, list(seed))
+                        known = {s[0] for s in seed}
+                        seed.extend(m for m in plan.mappings if m[0] not in known)
             except BlockedFindings as exc:
                 raise errors.blocked_findings(exc.count) from exc
+            except ConversationNotFound as exc:
+                raise errors.conversation_not_found() from exc
+            except VaultError as exc:
+                raise errors.vault_unavailable() from exc
         wire = plan.to_wire(session.document, strip_metadata=strip)
         if session.format_id == "pdf":
             wire["pdf_pages"] = pdf_sections(session.document, plan)
@@ -140,8 +126,9 @@ def register(
         )
 
         entries = [
-            VaultEntry(text, original, entity_type)
-            for text, (original, entity_type) in plan.reversible.items()
+            VaultEntry(text, original, entity_type, style)
+            for text, original, entity_type, style in plan.mappings
+            if text in plan.reversible
         ]
         vault_status: dict[str, Any] = {
             "entries": len(entries),

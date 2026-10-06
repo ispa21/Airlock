@@ -1,8 +1,12 @@
 """Replacement text for each action and mask style.
 
-* MASK, ``typed_placeholder``: ``[EMAIL_1]``. The same value always gets the
-  same placeholder within a file, so an AI can still follow who is who.
-* MASK, ``placeholder``: ``[MASKED_1]``. Same, without revealing the type.
+* MASK, ``typed_placeholder``: ``EMAIL_001``, ``PERSON_002`` (typed, numbered
+  from 001, no brackets; Phase 12). The same value always gets the same
+  placeholder within a file, or within a conversation when the replacer is
+  seeded with the conversation's earlier placeholders, so an AI can still
+  follow who is who. Copies made before Phase 12 used ``[EMAIL_1]``; their
+  vault records still restore.
+* MASK, ``placeholder``: ``MASKED_001``. Same, without revealing the type.
 * MASK, ``synthetic``: a realistic but reserved stand-in (``person1@example.invalid``,
   ``192.0.2.1``); types without a safe reserved form use typed placeholders.
 * MASK, ``partial``: part of the value stays recognisable — last four
@@ -21,6 +25,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
+from collections.abc import Iterable
 from urllib.parse import urlsplit
 
 from airlock_engine.core.models import Action
@@ -31,6 +36,8 @@ REDACTED = "[REDACTED]"
 _GENERIC_TYPES = frozenset(BUILTIN_ENTITIES) | {c.id for c in BUILTIN_RULE_CATEGORIES}
 #: Custom categories are named after company labels; never put those in a placeholder.
 CUSTOM_TYPE = "CONFIDENTIAL"
+#: The ``placeholder`` mask style hides the type as well.
+MASKED_TYPE = "MASKED"
 
 _SYNTHETIC_FIRST = ("Alex", "Sam", "Jordan", "Taylor", "Morgan", "Casey", "Riley", "Avery")
 _SYNTHETIC_LAST = ("Example", "Sample", "Placeholder", "Testcase")
@@ -38,16 +45,48 @@ _YEAR = re.compile(r"(?<!\d)(19|20)\d{2}(?!\d)")
 _NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
 
 
-class Replacer:
-    """Issues replacement text, consistent per (type, value) within one file."""
+def placeholder_label(entity_type: str) -> str:
+    """The type shown in a typed placeholder; custom categories are named
+    after company labels, so they become ``CONFIDENTIAL``."""
+    return entity_type if entity_type in _GENERIC_TYPES else CUSTOM_TYPE
 
-    def __init__(self, existing_text: str = "") -> None:
+
+def placeholder_labels() -> frozenset[str]:
+    """Every label a placeholder can carry (for recognising placeholders)."""
+    return frozenset(_GENERIC_TYPES | {CUSTOM_TYPE, MASKED_TYPE})
+
+
+def numbered(label: str, n: int) -> str:
+    return f"{label}_{n:03d}"
+
+
+#: (placeholder, original value, entity type, mask style) issued earlier in the
+#: same conversation or workspace.
+Seed = tuple[str, str, str, str]
+
+
+class Replacer:
+    """Issues replacement text, consistent per (type, value) within one file,
+    or within a conversation when seeded with its earlier placeholders."""
+
+    def __init__(self, existing_text: str = "", seed: Iterable[Seed] = ()) -> None:
         #: Text already in the document: placeholders must not collide with it (R11).
         self._existing = existing_text
         self._issued: dict[tuple[str, str, str], str] = {}
         self._counters: dict[str, int] = {}
         #: replacement text → (original value, entity type), reversible ones only.
         self.reversible: dict[str, tuple[str, str]] = {}
+        for text, value, entity_type, style in seed:
+            self._issued.setdefault((entity_type, value, style), text)
+            self.reversible.setdefault(text, (value, entity_type))
+
+    def mappings(self) -> list[Seed]:
+        """Every reversible replacement issued so far (seeded ones included)."""
+        return [
+            (text, value, entity_type, style)
+            for (entity_type, value, style), text in self._issued.items()
+            if text in self.reversible
+        ]
 
     def _next(self, key: str, render: object) -> str:
         assert callable(render)
@@ -74,18 +113,20 @@ class Replacer:
         key = (entity_type, value, mask_style)
         if key in self._issued:
             return self._issued[key]
-        label = entity_type if entity_type in _GENERIC_TYPES else CUSTOM_TYPE
+        label = placeholder_label(entity_type)
         text = None
         if mask_style == "synthetic":
             text = self._synthetic(entity_type, value)
         if text is None:
             if mask_style == "placeholder":
-                text = self._next("MASKED", lambda n: f"[MASKED_{n}]")
+                text = self._next(MASKED_TYPE, lambda n: numbered(MASKED_TYPE, n))
             else:
-                text = self._next(label, lambda n: f"[{label}_{n}]")
-        self._issued[key] = _check(text)
-        self.reversible[text] = (value, entity_type)
-        return text
+                text = self._next(label, lambda n: numbered(label, n))
+        checked = _check(text)
+        self._issued[key] = checked
+        if checked == text:
+            self.reversible[text] = (value, entity_type)
+        return checked
 
     def _synthetic(self, entity_type: str, value: str) -> str | None:
         if entity_type == "PERSON":

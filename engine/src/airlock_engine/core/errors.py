@@ -274,6 +274,16 @@ def vault_record_not_found() -> AirlockError:
     )
 
 
+def conversation_not_found() -> AirlockError:
+    return AirlockError(
+        kind="conversation_not_found",
+        message="Airlock has no stored placeholders for this conversation. It may have "
+        "expired or been deleted.",
+        next_step="Start a new conversation. Placeholders can only be restored on the "
+        "device that created them.",
+    )
+
+
 def vault_unavailable() -> AirlockError:
     return AirlockError(
         kind="vault_unavailable",

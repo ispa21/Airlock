@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { findingRows, statusLabel, summaryLine } from "../src/view.js";
 
 const RESULT = {
-  text: "Owner [EMAIL_1], password [REDACTED]",
+  text: "Owner EMAIL_001, password [REDACTED]",
   changed: 2,
   blocked: 1,
   actions: { MASK: 1, BLOCK: 1 },

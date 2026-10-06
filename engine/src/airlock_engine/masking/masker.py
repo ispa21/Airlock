@@ -14,11 +14,12 @@ over its private pipe, never to the UI or a log.
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
 from airlock_engine.core.models import Action, ExtractedDocument, Finding, TextSegment
-from airlock_engine.masking.replacements import Replacer
+from airlock_engine.masking.replacements import Replacer, Seed
 from airlock_engine.policy.engine import PolicyDecision
 
 Box = tuple[float, float, float, float]
@@ -40,6 +41,9 @@ class MaskPlan:
     paint: list[tuple[str, str, list[Box] | None]] = field(default_factory=list)
     #: replacement text → (original value, entity type), reversible replacements only.
     reversible: dict[str, tuple[str, str]] = field(default_factory=dict)
+    #: (placeholder, original, entity type, style) for every reversible replacement,
+    #: including those seeded from a conversation.
+    mappings: list[Seed] = field(default_factory=list)
     #: (original value, entity type) that must not be left in the copy (Phase 7 checks).
     protected: list[tuple[str, str]] = field(default_factory=list)
     counts: Counter[str] = field(default_factory=Counter)
@@ -64,12 +68,16 @@ class MaskPlan:
         }
 
 
-def build_plan(document: ExtractedDocument, decision: PolicyDecision) -> MaskPlan:
+def build_plan(
+    document: ExtractedDocument, decision: PolicyDecision, seed: Iterable[Seed] = ()
+) -> MaskPlan:
+    """``seed``: placeholders already issued in a conversation (privacy
+    workspace), so the same value keeps its placeholder in this copy."""
     if decision.blocked:
         raise BlockedFindings(decision.blocked)
     segments = {s.segment_id: s for s in document.segments}
     findings = {f.finding_id: f for f in decision.findings}
-    replacer = Replacer("\n".join(s.text for s in document.segments))
+    replacer = Replacer("\n".join(s.text for s in document.segments), seed)
     plan = MaskPlan()
     painted: dict[tuple[str, str], list[Box] | None] = {}
 
@@ -105,7 +113,9 @@ def build_plan(document: ExtractedDocument, decision: PolicyDecision) -> MaskPla
                 current.extend(b for b in boxes if b not in current)
 
     plan.paint = [(part, path, boxes) for (part, path), boxes in painted.items()]
-    plan.reversible = dict(replacer.reversible)
+    used = {text for *_, text in plan.edits} | {text for _, text in plan.sweep}
+    plan.reversible = {k: v for k, v in replacer.reversible.items() if k in used}
+    plan.mappings = replacer.mappings()
     return plan
 
 

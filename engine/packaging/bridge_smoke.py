@@ -81,7 +81,8 @@ def main() -> int:
         assert profiles["profiles"], profiles
         protected = call(proc, 3, "text.protect", text=PROMPT)["result"]
         assert EMAIL not in protected["text"] and SECRET not in protected["text"], "value left"
-        assert "[EMAIL_1]" in protected["text"] and protected["blocked"] >= 1, protected
+        assert "EMAIL_001" in protected["text"] and protected["blocked"] >= 1, protected
+        assert protected["check"]["status"] == "safe", protected["check"]
         print(f"text.protect: {protected['text']!r}")
         refused = call(proc, 4, "scan.start", path=str(exe))
         assert refused["error"]["code"] == -32601, refused

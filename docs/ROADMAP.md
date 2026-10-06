@@ -17,7 +17,7 @@ done when its exit criteria pass on a real run, not when it compiles.
 | 9 | ~~Right-click integration~~ | Skipped by decision (2026-10-05): files are opened by drag-and-drop or Browse in every surface | ⏭ Skipped |
 | 10 | Lifetime licensing | Ed25519 signed licences, offline import, online activation (isolated from the engine), local verification | ✅ Done |
 | 11 | Browser extension foundation | MV3 extension for Chrome and Edge. Uses the local app's engine through native messaging when it is installed, otherwise the in-browser engine from Phase 14 (fallback added in Phase 14) | ✅ Done |
-| 12 | Reversible masking & response restoration (queued) | Session/conversation-scoped mapping vault, stable `PERSON_001`-style pseudonyms, local restoration of AI responses (review before restore), outbound privacy check, prompt and clipboard protection, provider-neutral AI adapter layer. Requirements: [REVERSIBLE_MASKING.md](REVERSIBLE_MASKING.md) | |
+| 12 | Reversible masking & response restoration | Session/conversation-scoped mapping vault, stable `PERSON_001`-style pseudonyms, local restoration of AI responses (review before restore), outbound privacy check, prompt and clipboard protection, provider-neutral AI adapter layer. Requirements: [REVERSIBLE_MASKING.md](REVERSIBLE_MASKING.md) | ✅ Done |
 | 13 | Local web app | The installed engine serves the same UI to the user's own browser on a loopback address: 127.0.0.1 only, random port, per-launch secret, Host and Origin checks, the same method allowlist as the desktop host. No document leaves the computer | |
 | 14 | Web app (in the browser) | A static website where the engine runs inside the user's browser (WebAssembly in a Web Worker). Files are never uploaded; the site works offline after the first visit. Measure and document what is lighter than the desktop app (language model, OCR, very large files) | |
 
@@ -426,3 +426,43 @@ restoring AI responses (Phase 12).
   release IDs then join the allowed origins) and a run with the Windows
   installer and Edge.
 
+## Phase 12 verification log
+
+* Decision (2026-10-06): placeholders are `PERSON_001` (typed, numbered from
+  001, no brackets) for documents and text; copies made with `[EMAIL_1]`
+  still restore.
+* Engine: `masking/restore.py` (token-aware restorer), conversations as vault
+  records (`AIRLOCK-2026-001928`, `masking/conversations.py`), `text.protect`
+  with privacy modes, conversation scope and the outbound check (the
+  verifier's checks on the protected text), `conversation.*` and
+  `response.analyze` / `review` / `restore`, and the opt-in workspace
+  (`sanitize.run` with `conversation_id`). Logs hold events and counts only
+  (`conversation_started`, `text_protected`, `response_reviewed`,
+  `response_restored`).
+* UI: a "Text for AI" view (boundary strip, conversation line, privacy mode,
+  outbound check, Copy for AI through the AI adapter layer, response panel
+  with Restore / Review / Keep anonymized), "Restore an AI response" on every
+  protected copy, the workspace checkbox before creating a copy, and Settings
+  → Text for AI conversations → Delete All. The conversation id is remembered
+  across restarts and dropped if the engine no longer has it.
+* Tests: engine 468 (restorer 21: possessives, punctuation, Markdown escapes,
+  partial matches, unknown placeholders, special characters, overlaps;
+  conversations 7: stable placeholders across turns, values from earlier
+  turns protected without detection, a differently written value stopped by
+  the outbound check, the four modes, credentials never stored, unknown and
+  forgotten conversations, records encrypted on disk, the workspace), host
+  27, UI 45, extension 10.
+* Real run (Linux, Xvfb, WebKitGTK, development engine with the language
+  model), as a step of `scripts/desktop_e2e.py` through tauri-driver: a prompt
+  with an e-mail and a PAN became "Write a short reply to EMAIL_001 about the
+  vendor PAN PAN_001." in conversation `AIRLOCK-2026-379508`, "Safe to send";
+  Copy for AI put exactly that text on the clipboard; a pasted response with
+  `EMAIL_001` and `PERSON_999` showed "AI response received · 1 placeholder",
+  the review table showed the original, Restore put the e-mail back and left
+  `PERSON_999` as written; the log had the four events and none of the
+  values. A run with a name and a project gave "PERSON_001 (EMAIL_001) about
+  ORGANIZATION_001 and PAN PAN_001" (the language model saw the project as an
+  organisation; a company rule gives `INTERNAL_PROJECT_001`).
+* Not done here: a macOS Keychain-backed vault key, restoring responses in
+  the browser extension, and provider adapters other than the clipboard (see
+  the status table in REVERSIBLE_MASKING.md).

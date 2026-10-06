@@ -3,7 +3,7 @@
 Protect text before you paste it into an AI tool. Paste text into the
 Airlock popup, or select text on a page and right-click **Protect selected
 text with Airlock**. Airlock replaces names, e-mail addresses, phone numbers
-and other sensitive values with placeholders such as `[EMAIL_1]`, removes
+and other sensitive values with placeholders such as `EMAIL_001`, removes
 passwords, keys and tokens, and gives you the protected text to copy.
 
 The extension does not detect anything itself: the text is checked by the

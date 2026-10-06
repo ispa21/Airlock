@@ -13,3 +13,10 @@ export function formatBytes(bytes: number): string {
 export function fileNameFromPath(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 }
+
+const integer = new Intl.NumberFormat("en-US");
+
+/** "1 placeholder", "3 placeholders". */
+export function plural(n: number, one: string, many = `${one}s`): string {
+  return `${integer.format(n)} ${n === 1 ? one : many}`;
+}

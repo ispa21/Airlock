@@ -59,8 +59,9 @@ def test_text_protect_masks_redacts_blocked_items_and_leaks_nothing(tmp_path: Pa
         assert value not in protected
         assert value not in json.dumps(result)
         assert value not in stream.getvalue()
-    assert protected.count("[EMAIL_1]") == 2  # every repeat, one consistent placeholder
-    assert "[PAN_1]" in protected and "[REDACTED]" in protected
+    assert protected.count("EMAIL_001") == 2  # every repeat, one consistent placeholder
+    assert "PAN_001" in protected and "[REDACTED]" in protected
+    assert result["check"]["status"] == "safe" and result["placeholders"] == 2
     assert protected.startswith("Summarise this for the board.")
     assert result["blocked"] == 1 and result["changed"] >= 3
     assert result["profile"]["id"] == "company-default"

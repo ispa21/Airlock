@@ -328,9 +328,10 @@ sanitize.run(scan_id)
 * **PDFs are rebuilt** (risk R1): masked page text only.
 * **Copies are not yet trusted.** Phase 7 re-extracts and rescans each copy
   before it can be saved; until then copies stay in the private work folder.
-* **Reversibility** is recorded per copy in the vault; restoring AI responses
-  in the UI, session-scoped mappings and `PERSON_001`-style placeholders are
-  Phase 12 ([REVERSIBLE_MASKING.md](REVERSIBLE_MASKING.md)).
+* **Reversibility** is recorded per copy in the vault (placeholder, original,
+  type, mask style). Since Phase 12 placeholders are `PERSON_001`-style, a copy
+  can share a conversation's placeholders, and AI responses are restored in
+  the UI (§5h).
 
 ## 5e. Privacy report and teaching Airlock (Phase 6)
 
@@ -457,6 +458,53 @@ pasted text ──────────────────────�
   uninstalling removes the keys. For development,
   `apps/extension/scripts/register_host.py` registers the engine from
   `engine/.venv`.
+
+## 5h. Reversible masking and response restoration (Phase 12)
+
+```
+                       YOUR DEVICE
+ prompt ─ text.protect(mode, conversation) ─ detect ─ policy ─ replace + sweep
+                     │                                    │
+                     │      conversation vault record ◀───┘ placeholder → original, type, style
+                     │      (AIRLOCK-2026-001928, AES-256-GCM)
+                     └─ outbound check: scan the result again ─ safe | review | blocked
+ UI: only text that passed → AI adapter (clipboard)
+ ───────────────────────────── device boundary ─────────────────────────────
+                     external AI tool (sees PERSON_001, never the originals)
+ ───────────────────────────── device boundary ─────────────────────────────
+ response ─ response.analyze (counts) ─ review (table) ─ response.restore ─ restored text
+```
+
+* **Placeholders** are typed and numbered from 001 (`PERSON_001`,
+  `INTERNAL_PROJECT_002`, `MASKED_003` for the untyped style), wider past
+  999, never a number that already appears in the input. Copies made before
+  Phase 12 used `[EMAIL_1]`; their records still restore.
+* **Conversations** are vault records named after the conversation id. Each
+  `text.protect` in a conversation seeds the replacer with the record's
+  mapping, so the same value keeps its placeholder in every turn, and also
+  sweeps the values protected in earlier turns even where the detectors do
+  not flag them again. New placeholders are added to the record; nothing
+  else is stored (redaction stores nothing). A protected copy can join a
+  conversation (`sanitize.run` with `conversation_id`): the opt-in privacy
+  workspace, so a document and the prompts about it share placeholders.
+* **Privacy modes** (`text.protect`): reversible masking (default), synthetic
+  replacement, permanent redaction, block sensitive content.
+* **Outbound check.** The protected text is scanned again with the same
+  checks as a protected copy (§5f, `verification.verifier.evaluate`): an
+  original value still in it blocks it, a new finding needs review. The UI's
+  AI adapter layer (`apps/desktop/src/ai/adapter.ts`) accepts only
+  `OutboundText`, which only a passed (or acknowledged) check produces; the
+  built-in adapter is the clipboard, and others can be added without
+  touching the engine.
+* **Restoration** (`masking/restore.py`) replaces only the scope's own
+  placeholders, as whole tokens (`PERSON_001's` yes, `PERSON_0011` no;
+  Markdown-escaped `PERSON\_001` yes), longest first, inserting originals
+  literally. Unknown placeholder-shaped tokens are reported and left as they
+  are. `response.analyze` returns counts only; originals reach the UI only
+  through `response.review` and `response.restore`.
+* **Retention.** Conversation records follow the vault's 30-day retention
+  (from the last change); "New conversation" and Settings → Delete All
+  delete them at once.
 
 ## 6. Data model
 

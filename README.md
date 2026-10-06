@@ -13,9 +13,10 @@ with the internet disabled.
 
 > Status: the desktop app scans, protects, verifies and exports documents
 > (Phases 0-7), installs on Windows (Phase 8), carries lifetime licences
-> (Phase 10), and a Chrome/Edge extension protects text through the installed
-> engine (Phase 11). Reversible masking with response restoration is next.
-> See [docs/ROADMAP.md](docs/ROADMAP.md).
+> (Phase 10), a Chrome/Edge extension protects text through the installed
+> engine (Phase 11), and prompts are protected with stable `PERSON_001`-style
+> placeholders and AI responses restored on the device (Phase 12). Next: the
+> local web app (Phase 13). See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Repository
 

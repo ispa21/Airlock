@@ -207,7 +207,7 @@ def test_partial_masking_is_never_offered_for_credentials() -> None:
     assert partial_allowed("EMAIL") and partial_allowed("INTERNAL_PROJECT")
     replacer = Replacer()
     # Asked for partial on a credential, the replacer falls back to a placeholder.
-    assert replacer.text_for("API_KEY", "ghp_secret", Action.MASK, "partial") == "[API_KEY_1]"
+    assert replacer.text_for("API_KEY", "ghp_secret", Action.MASK, "partial") == "API_KEY_001"
     assert "ghp_secret" in {v for v, _ in replacer.reversible.values()}
 
 

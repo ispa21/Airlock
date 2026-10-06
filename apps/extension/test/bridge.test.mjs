@@ -36,10 +36,10 @@ test("calls are JSON-RPC requests matched by id; notifications are ignored", asy
   assert.equal(connects, 1);
   assert.deepEqual(port.sent[1], { jsonrpc: "2.0", id: 2, method: "text.protect", params: { text: "hi" } });
   port.reply({ jsonrpc: "2.0", method: "$/progress", params: { stage: "detect" } });
-  port.reply({ jsonrpc: "2.0", id: 2, result: { text: "[EMAIL_1]" } });
+  port.reply({ jsonrpc: "2.0", id: 2, result: { text: "EMAIL_001" } });
   port.reply({ jsonrpc: "2.0", id: 1, result: { status: "ok" } });
   assert.deepEqual(await first, { status: "ok" });
-  assert.deepEqual(await second, { text: "[EMAIL_1]" });
+  assert.deepEqual(await second, { text: "EMAIL_001" });
 });
 
 test("engine errors become user-facing errors", async () => {

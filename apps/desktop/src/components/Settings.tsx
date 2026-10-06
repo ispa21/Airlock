@@ -250,7 +250,7 @@ function ProfilesSection({ onChanged }: { onChanged: () => void }) {
       </header>
       <p className="report__foot">
         A profile decides what happens to each kind of data. Built-in profiles can't be changed: duplicate one to make
-        your own. Mask styles: a typed placeholder such as [EMAIL_1], a plain [MASKED_1], a realistic fake value, or
+        your own. Mask styles: a typed placeholder such as EMAIL_001, a plain MASKED_001, a realistic fake value, or
         partly hidden (for example the last 4 digits; this one can't be turned back into the original).
       </p>
       <div className="profile-bar">
@@ -416,6 +416,54 @@ function AllowListSection({ onChanged }: { onChanged: () => void }) {
         onClick={() => void run(() => platform.clearAllowList()).then(() => setSaved(0))}
       >
         Forget All
+      </button>
+    </section>
+  );
+}
+
+const ignore = () => undefined;
+
+function ConversationsSection() {
+  const platform = usePlatform();
+  const [stored, setStored] = useState<number | null>(null);
+  const [ids, setIds] = useState<string[]>([]);
+  const { error, setError, busy, run } = useChange(ignore);
+
+  useEffect(() => {
+    platform
+      .listConversations()
+      .then((list) => {
+        setIds(list.map((c) => c.conversation_id));
+        setStored(list.length);
+      })
+      .catch((err: unknown) => setError(toEngineError(err)));
+  }, [platform, setError]);
+
+  return (
+    <section className="report settings__section" aria-labelledby="conversations-title">
+      <header className="report__head">
+        <h2 id="conversations-title">Text for AI conversations</h2>
+        <span className="report__meta">{stored === null ? "Loading…" : count(stored, "conversation")}</span>
+      </header>
+      <p className="report__foot">
+        Each conversation keeps its placeholders and the original values, encrypted on this device, so AI responses
+        can be restored. They are never sent anywhere and are deleted automatically after 30 days without use.
+      </p>
+      {error && <ErrorNotice error={error} aboutFile={false} />}
+      <button
+        type="button"
+        className="ghost settings__clear"
+        disabled={busy || !stored}
+        onClick={() =>
+          void run(async () => {
+            for (const id of ids) await platform.forgetConversation(id);
+          }).then(() => {
+            setIds([]);
+            setStored(0);
+          })
+        }
+      >
+        Delete All
       </button>
     </section>
   );
@@ -591,6 +639,7 @@ export function Settings({ onClose }: { onClose: (changed: boolean) => void }) {
       <RulesSection onChanged={markChanged} />
       <ProfilesSection onChanged={markChanged} />
       <AllowListSection onChanged={markChanged} />
+      <ConversationsSection />
       <LicenseSection />
     </div>
   );

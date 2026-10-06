@@ -1,13 +1,16 @@
 """Encrypted, local-only store of reversible replacements.
 
 Each protected copy gets its own record: the placeholders (or synthetic
-values) it contains, the original values and their entity types. Records are
+values) it contains, the original values and their entity types. Each
+conversation (Phase 12) also gets one, named ``AIRLOCK-<year>-<number>``,
+which grows as more text is protected in it. Records are
 AES-256-GCM encrypted with a vault key that is itself wrapped by the key
 protector (DPAPI on Windows). The record id is bound in as associated data, so
 records cannot be swapped between copies.
 
-Restoring only replaces placeholders recorded for that copy; anything else,
-including look-alike placeholders the AI invents, is left untouched.
+Restoring only replaces placeholders recorded for that record; anything
+else, including look-alike placeholders the AI invents, is left untouched
+(see ``masking.restore``).
 
 Mappings never leave the device: they are not logged, not returned to the UI
 except through an explicit restore, and never sent anywhere.
@@ -29,11 +32,13 @@ from typing import Any
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from airlock_engine.masking.restore import Restorer
 from airlock_engine.security.keyprotect import KeyProtectionError, KeyProtector
 
 _MAGIC = b"ALV1"
 _KEY_FILE = "vault.key"
-_ID = re.compile(r"^[a-z]+_[0-9a-f]{8,32}$")
+#: Protected copies (``art_<hex>``) and conversations (``AIRLOCK-2026-001928``).
+_ID = re.compile(r"^(?:[a-z]+_[0-9a-f]{8,32}|AIRLOCK-[0-9]{4}-[0-9]{6})$")
 DEFAULT_RETENTION_DAYS = 30
 
 
@@ -46,6 +51,8 @@ class VaultEntry:
     placeholder: str
     original: str
     entity_type: str
+    #: Mask style that produced the placeholder (empty in records made before Phase 12).
+    style: str = ""
 
     def __repr__(self) -> str:  # never print the original
         return f"VaultEntry({self.placeholder}, type={self.entity_type})"
@@ -88,7 +95,7 @@ class Vault:
             {
                 "created": time.time(),
                 "meta": meta,
-                "entries": [[e.placeholder, e.original, e.entity_type] for e in entries],
+                "entries": [[e.placeholder, e.original, e.entity_type, e.style] for e in entries],
             },
             ensure_ascii=False,
         ).encode("utf-8")
@@ -118,36 +125,33 @@ class Vault:
         data: dict[str, Any] = json.loads(plain)
         return data
 
-    def entries(self, record_id: str) -> list[VaultEntry] | None:
+    def record(self, record_id: str) -> tuple[list[VaultEntry], dict[str, Any]] | None:
+        """A record's entries and metadata, or None if there is no such record."""
         data = self._read(record_id)
         if data is None:
             return None
-        return [VaultEntry(str(p), str(o), str(t)) for p, o, t in data["entries"]]
+        entries = [VaultEntry(*(str(x) for x in row[:4])) for row in data["entries"]]
+        meta = dict(data.get("meta") or {})
+        meta.setdefault("created", data.get("created"))
+        return entries, meta
+
+    def entries(self, record_id: str) -> list[VaultEntry] | None:
+        found = self.record(record_id)
+        return None if found is None else found[0]
+
+    def exists(self, record_id: str) -> bool:
+        with self._lock:
+            if self.directory is None:
+                return record_id in self._memory
+            return self._path(record_id).exists()
 
     def restore(self, record_id: str, text: str) -> tuple[str, int] | None:
         """Replace this record's placeholders in ``text``. None if no record."""
         entries = self.entries(record_id)
         if entries is None:
             return None
-        mapping = {e.placeholder: e.original for e in entries}
-        if not mapping:
-            return text, 0
-        pattern = re.compile("|".join(re.escape(p) for p in sorted(mapping, key=len, reverse=True)))
-        count = 0
-
-        def swap(m: re.Match[str]) -> str:
-            nonlocal count
-            # Synthetic stand-ins are plain words: require word edges for them.
-            start, end = m.start(), m.end()
-            token = m.group()
-            if token[0].isalnum() and start > 0 and text[start - 1].isalnum():
-                return token
-            if token[-1].isalnum() and end < len(text) and text[end].isalnum():
-                return token
-            count += 1
-            return mapping[token]
-
-        return pattern.sub(swap, text), count
+        restored = Restorer({e.placeholder: e.original for e in entries}).restore(text)
+        return restored.text, restored.restored
 
     def forget(self, record_id: str) -> bool:
         with self._lock:

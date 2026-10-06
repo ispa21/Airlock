@@ -1475,3 +1475,199 @@ select {
   color: var(--ink-2);
   font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
+
+/* Text for AI (Phase 12) ---------------------------------------------------- */
+.views {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.views__tab {
+  height: 36px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font-weight: 550;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.views__tab[aria-selected="true"] {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-card);
+}
+
+.views__tab:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.textbox {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  resize: vertical;
+  user-select: text;
+}
+
+.textbox:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--focus);
+}
+
+.textbox[readonly] {
+  background: var(--surface-2);
+}
+
+/* Where the data goes: your device | outside | your device. */
+.boundary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.boundary__step {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.boundary__step[data-side="device"] {
+  background: var(--accent-tint);
+  border-color: color-mix(in srgb, var(--accent) 25%, var(--line));
+}
+
+.boundary__step[data-side="outside"] {
+  border-style: dashed;
+}
+
+.boundary__step[data-current] {
+  border-color: var(--accent);
+  box-shadow: var(--focus);
+  color: var(--ink-2);
+}
+
+.boundary__step[data-done] {
+  color: var(--ink-2);
+}
+
+.boundary__place {
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.conversation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.conversation__line {
+  margin: 0;
+}
+
+.conversation code,
+.review-table code {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+}
+
+.conversation__confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.response__received,
+.response__review,
+.response__restored {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.response__status {
+  margin: 0;
+  font-weight: 600;
+}
+
+.response--embedded {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.response .inline-note,
+.textai .inline-note {
+  margin: 0;
+  text-align: left;
+}
+
+.review-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.review-table caption {
+  text-align: left;
+  font-weight: 600;
+  padding-bottom: 6px;
+}
+
+.review-table th,
+.review-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.review-table thead th {
+  color: var(--muted);
+  font-weight: 550;
+}
+
+.review-table__original {
+  user-select: text;
+  word-break: break-word;
+}
+
+.review-table__count {
+  color: var(--muted);
+}
+
+.field--stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}

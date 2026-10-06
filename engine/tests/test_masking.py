@@ -64,29 +64,51 @@ def test_typed_placeholders_are_consistent_and_numbered_per_type() -> None:
     a = r.text_for("EMAIL", "a@x.invalid", Action.MASK, "typed_placeholder")
     b = r.text_for("EMAIL", "b@x.invalid", Action.MASK, "typed_placeholder")
     p = r.text_for("PERSON", "Rahul", Action.MASK, "typed_placeholder")
-    assert (a, b, p) == ("[EMAIL_1]", "[EMAIL_2]", "[PERSON_1]")
+    assert (a, b, p) == ("EMAIL_001", "EMAIL_002", "PERSON_001")
     assert r.text_for("EMAIL", "a@x.invalid", Action.MASK, "typed_placeholder") == a
     assert r.reversible[a] == ("a@x.invalid", "EMAIL")
 
 
 def test_placeholders_skip_numbers_already_in_the_document() -> None:
-    r = Replacer("This template literally contains [EMAIL_1] and [EMAIL_2].")
-    assert r.text_for("EMAIL", "x@y.invalid", Action.MASK, "typed_placeholder") == "[EMAIL_3]"
+    r = Replacer("This template literally contains EMAIL_001 and EMAIL_002.")
+    assert r.text_for("EMAIL", "x@y.invalid", Action.MASK, "typed_placeholder") == "EMAIL_003"
+
+
+def test_numbering_widens_past_999() -> None:
+    r = Replacer()
+    issued = [
+        r.text_for("EMAIL", f"u{i}@x.invalid", Action.MASK, "typed_placeholder")
+        for i in range(1000)
+    ]
+    assert issued[0] == "EMAIL_001" and issued[998] == "EMAIL_999" and issued[999] == "EMAIL_1000"
+
+
+def test_seeded_replacer_keeps_earlier_placeholders_and_continues_numbering() -> None:
+    first = Replacer()
+    first.text_for("PERSON", "Rahul Sharma", Action.MASK, "typed_placeholder")
+    first.text_for("EMAIL", "r@x.invalid", Action.MASK, "typed_placeholder")
+    second = Replacer("next turn", first.mappings())
+    assert second.text_for("PERSON", "Rahul Sharma", Action.MASK, "typed_placeholder") == (
+        "PERSON_001"
+    )
+    assert second.text_for("PERSON", "Asha Rao", Action.MASK, "typed_placeholder") == "PERSON_002"
+    assert [m[0] for m in second.mappings()] == ["PERSON_001", "EMAIL_001", "PERSON_002"]
+    assert second.mappings()[0] == ("PERSON_001", "Rahul Sharma", "PERSON", "typed_placeholder")
 
 
 def test_custom_category_names_never_reach_the_placeholder() -> None:
     r = Replacer()
     assert r.text_for("PROJECT_PHOENIX_CLIENTS", "Acme", Action.MASK, "typed_placeholder") == (
-        "[CONFIDENTIAL_1]"
+        "CONFIDENTIAL_001"
     )
     assert r.text_for("INTERNAL_PROJECT", "Nightjar", Action.MASK, "typed_placeholder") == (
-        "[INTERNAL_PROJECT_1]"
+        "INTERNAL_PROJECT_001"
     )
 
 
 def test_generic_placeholder_and_redaction() -> None:
     r = Replacer()
-    assert r.text_for("PAN", "ABCPE1234F", Action.MASK, "placeholder") == "[MASKED_1]"
+    assert r.text_for("PAN", "ABCPE1234F", Action.MASK, "placeholder") == "MASKED_001"
     assert r.text_for("PAN", "ABCPE1234F", Action.REDACT, "typed_placeholder") == REDACTED
     assert REDACTED not in r.reversible
 
@@ -101,7 +123,7 @@ def test_synthetic_values_use_reserved_ranges() -> None:
     assert r.text_for("PHONE", "+91 98765 43210", Action.MASK, "synthetic") == "+91 00000 00001"
     assert r.text_for("PERSON", "Rahul", Action.MASK, "synthetic") == "Alex Example"
     # Types without a safe reserved form fall back to typed placeholders.
-    assert r.text_for("AADHAAR", "2345 6789 0124", Action.MASK, "synthetic") == "[AADHAAR_1]"
+    assert r.text_for("AADHAAR", "2345 6789 0124", Action.MASK, "synthetic") == "AADHAAR_001"
 
 
 @pytest.mark.parametrize(
@@ -183,9 +205,10 @@ def test_plan_has_edits_sweep_and_vault_entries() -> None:
         _det(seg, "12/03/1988", "DATE_OF_BIRTH"),
     ]
     plan = build_plan(_doc(seg), _decide(items))
-    assert [e[3] for e in plan.edits] == ["[EMAIL_1]", "[EMAIL_1]", "1988"]
-    assert ("a@x.invalid", "[EMAIL_1]") in plan.sweep
-    assert plan.reversible == {"[EMAIL_1]": ("a@x.invalid", "EMAIL")}
+    assert [e[3] for e in plan.edits] == ["EMAIL_001", "EMAIL_001", "1988"]
+    assert ("a@x.invalid", "EMAIL_001") in plan.sweep
+    assert plan.reversible == {"EMAIL_001": ("a@x.invalid", "EMAIL")}
+    assert plan.mappings == [("EMAIL_001", "a@x.invalid", "EMAIL", "typed_placeholder")]
     assert plan.counts == {"MASK": 2, "GENERALIZE": 1}
     assert "a@x.invalid" not in repr(plan)
 
@@ -226,7 +249,7 @@ def test_pdf_sections_apply_edits_and_sweep_per_page() -> None:
     sections = pdf_sections(doc, plan)
     assert [h for h, _ in sections] == ["Page 1", "Page 2"]
     assert "a@x.invalid" not in "".join(t for _, t in sections)
-    assert sections[0][1].count("[EMAIL_1]") == 2
+    assert sections[0][1].count("EMAIL_001") == 2
 
 
 def test_categories_cover_custom_rule_types() -> None:

@@ -167,7 +167,7 @@ def test_copy_opens_and_keeps_its_structure(registry: MethodRegistry, tmp_path: 
     assert result["vault"]["stored"] and result["vault"]["entries"] > 10
     assert result["verified"] is False
     copy = docx.Document(str(copy_path(tmp_path / "data", result["artifact_id"])))
-    assert copy.paragraphs[0].text.startswith("Customer Rahul Sharma [CONFIDENTIAL_TERM_")
+    assert copy.paragraphs[0].text.startswith("Customer Rahul Sharma CONFIDENTIAL_TERM_0")
 
 
 def test_restore_puts_originals_back_only_for_known_placeholders(
@@ -177,13 +177,15 @@ def test_restore_puts_originals_back_only_for_known_placeholders(
     source.write_text("Owner CANARY_OWNER, mail owner@example.invalid\n", encoding="utf-8")
     _, result, _ = protect(registry, source, ocr=False)
     copy = copy_path(tmp_path / "data", result["artifact_id"]).read_text(encoding="utf-8")
-    placeholders = re.findall(r"\[[A-Z_]+_\d+\]", copy)
+    placeholders = re.findall(r"\b[A-Z][A-Z_]*_\d{3}\b", copy)
     assert len(placeholders) == 2
-    ai_reply = f"{placeholders[0]} should email {placeholders[1]}. Ask [PERSON_77]."
+    first, second = placeholders
+    ai_reply = f"{first}'s note: email {second}. Ask PERSON_077, not {first}1 or [PERSON_77]."
     rs = call(registry, req(5, "vault.restore", artifact_id=result["artifact_id"], text=ai_reply))
     restored = result_of(rs, 5)
     assert restored == {
-        "text": "CANARY_OWNER should email owner@example.invalid. Ask [PERSON_77].",
+        "text": "CANARY_OWNER's note: email owner@example.invalid. "
+        f"Ask PERSON_077, not {first}1 or [PERSON_77].",
         "restored": 2,
     }
     assert "canary" not in log.getvalue().lower()

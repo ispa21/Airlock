@@ -373,3 +373,82 @@ export interface SanitizeResult {
   verified: boolean;
   duration_ms: number;
 }
+
+/** How text is protected before it is sent to an AI tool (Phase 12). */
+export type PrivacyMode = "reversible" | "synthetic" | "redact" | "block";
+
+/** The second local scan of protected text before it can be sent. */
+export interface OutboundCheck {
+  /** "safe": nothing sensitive left; "review": something new was found; "blocked": an original value is still in it. */
+  status: "safe" | "review" | "blocked";
+  remaining_count: number;
+  new_count: number;
+  remaining: RemainingItem[];
+  kept_count: number;
+}
+
+export interface TextFinding {
+  entity_type: string;
+  entity_label: string;
+  category: string;
+  preview: string;
+  action: PolicyAction;
+}
+
+/** Result of `text.protect`. */
+export interface ProtectTextResult {
+  /** The protected text; null when "Block sensitive content" withheld it. */
+  text: string | null;
+  withheld: boolean;
+  mode: PrivacyMode;
+  conversation_id: string | null;
+  /** Spans replaced. */
+  changed: number;
+  /** Passwords, keys and tokens removed (never restorable). */
+  blocked: number;
+  /** Distinct placeholders the AI will see. */
+  placeholders?: number;
+  actions: Partial<Record<PolicyAction, number>>;
+  findings: TextFinding[];
+  profile: { id: string; name: string };
+  ner: string;
+  check: OutboundCheck | null;
+}
+
+/** A conversation's mapping, described without any value. */
+export interface ConversationStatus {
+  conversation_id: string;
+  started: number | null;
+  updated: number | null;
+  placeholders: number;
+  types: Record<string, number>;
+}
+
+/** Where a response's placeholders come from. */
+export type RestoreScope = { conversation_id: string } | { artifact_id: string };
+
+/** Result of `response.analyze`: what a restore would do, without values. */
+export interface ResponseAnalysis {
+  placeholders: number;
+  occurrences: number;
+  types: Record<string, number>;
+  unknown: string[];
+  unknown_count: number;
+}
+
+export interface ReviewItem {
+  placeholder: string;
+  original: string;
+  entity_type: string;
+  entity_label: string;
+  count: number;
+}
+
+export interface ResponseReview extends ResponseAnalysis {
+  items: ReviewItem[];
+}
+
+export interface ResponseRestore extends ResponseAnalysis {
+  text: string;
+  restored: number;
+}

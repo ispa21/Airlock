@@ -20,9 +20,13 @@ Drives the real app the way a person does:
     Windows): placeholders, and none of the document's sensitive values.
  6. The original file is unchanged and the log holds the expected events
     but none of the values (and not the file name).
- 7. The engine is killed; Scan Again works because the host restarts it, and
+ 7. Text for AI (Phase 12): a prompt is protected in a conversation, passes
+    the outbound check ("Safe to send"), Copy for AI puts only placeholders
+    on the clipboard; a pasted AI response is reviewed and restored on the
+    device (an unknown placeholder stays as written); the log has no values.
+ 8. The engine is killed; Scan Again works because the host restarts it, and
     the log shows engine_exited and a second engine_ready.
- 8. The window is closed like a person does (WM_CLOSE on Windows); the app
+ 9. The window is closed like a person does (WM_CLOSE on Windows); the app
     exits and no engine process is left.
 
 Standard library only. Used by packaging/windows/installer-smoke.ps1 on the
@@ -74,6 +78,7 @@ DOCUMENT = (
     "Invoices are due within 30 days.\n"
 )
 VALUES = (EMAIL, PAN, MOBILE, MOBILE.replace(" ", ""), "dana.reyes")
+PROMPT = f"Write a short reply to {EMAIL} about the vendor PAN {PAN}."
 EXPECTED_EVENTS = (
     "engine_ready",
     "document_inspected",
@@ -398,6 +403,11 @@ def drop(session: Session, path: Path) -> None:
     assert error is None, f"emitting the drop event failed: {error}"
 
 
+MARK_SEEN = """
+const report = document.querySelector('#findings-title');
+if (report) report.dataset.e2eSeen = '1';
+"""
+
 FINDING_TYPES = """
 const report = document.querySelector('#findings-title');
 if (!report || report.dataset.e2eSeen) return null;
@@ -409,12 +419,89 @@ return { types: [...types].map((e) => e.textContent.trim()) };
 
 def scan(session: Session) -> list[str]:
     """Scan the loaded file; return the finding types of the new report."""
-    session.click(button("Scan Document") + " | " + button("Scan Again"))
     # A report already on screen is marked as seen, so this waits for the new one.
+    session.run(MARK_SEEN)
+    session.click(button("Scan Document") + " | " + button("Scan Again"))
     report = wait_for(lambda: session.run(FINDING_TYPES), "the privacy report", 600, session)
     types: list[str] = report["types"]
     assert len(types) >= 3, f"expected the e-mail, mobile and PAN, found {types}"
     return types
+
+
+def textbox(label: str) -> str:
+    """A text area by its visible label or its aria-label."""
+    return (
+        f'//label[.//span[normalize-space()="{label}"]]//textarea'
+        f' | //textarea[@aria-label="{label}"]'
+    )
+
+
+def type_into(session: Session, label: str, text: str) -> None:
+    element = wait_for(lambda: session.find(textbox(label)), f"the box {label!r}", 30, session)
+    session.command("POST", f"/element/{element}/value", {"text": text})
+
+
+def value_of(session: Session, label: str) -> str:
+    element = session.find(textbox(label))
+    value = session.command("GET", f"/element/{element}/property/value") if element else None
+    return value if isinstance(value, str) else ""
+
+
+def text_for_ai(session: Session, app: Path, log: Path) -> None:
+    """Phase 12: protect a prompt, send it, restore the AI's response."""
+    session.click("//button[@role='tab'][normalize-space()='Text for AI']")
+    type_into(session, "Your prompt or text", PROMPT)
+    session.click(button("Protect"))
+    verdict = wait_for(
+        lambda: text_of(session, ".copy__verified") or text_of(session, ".notice__title"),
+        "the outbound check",
+        300,
+        session,
+    )
+    assert verdict.startswith("Safe to send"), verdict
+    protected = value_of(session, "Text to send")
+    assert_no_values("the protected prompt", protected)
+    placeholder = re.search(r"\bEMAIL_\d{3}\b", protected)
+    assert placeholder, f"no e-mail placeholder in {len(protected)} characters"
+    conversation = text_of(session, ".conversation code") or ""
+    assert re.fullmatch(r"AIRLOCK-\d{4}-\d{6}", conversation), conversation
+    print(f"conversation {conversation}: {verdict.split(' · ')[0]}; {protected!r}")
+
+    focus_window(app)
+    session.click(button("Copy for AI"))
+    clipboard = wait_for(
+        lambda: (text := read_clipboard()).strip() == protected.strip() and text,
+        "the protected prompt on the clipboard",
+        15,
+    )
+    assert_no_values("the clipboard", clipboard)
+    print("clipboard: exactly the protected prompt")
+
+    reply = f"Sure. I will write to {placeholder.group()} today and copy PERSON_999."
+    type_into(session, "Paste the AI's response", reply)
+    session.click(button("Check response"))
+    received = wait_for(
+        lambda: text_of(session, ".response__status"), "the response check", 60, session
+    )
+    assert received == "AI response received · 1 placeholder", received
+    session.click(button("Review before restoring"))
+    table = wait_for(lambda: text_of(session, ".review-table"), "the review table", 60, session)
+    assert EMAIL in table, "the review does not show the original"
+    session.click(button("Restore"))
+    wait_for(lambda: value_of(session, "Restored response"), "the restored response", 60, session)
+    restored = value_of(session, "Restored response")
+    assert restored == f"Sure. I will write to {EMAIL} today and copy PERSON_999.", restored
+    print(f"{received}; restored on this device, PERSON_999 left as written")
+    assert_no_values("the log", log.read_text(encoding="utf-8"), (NAME_IN_FILE,))
+    events = log_events(log)
+    for event in (
+        "conversation_started",
+        "text_protected",
+        "response_reviewed",
+        "response_restored",
+    ):
+        assert event in events, f"{event} missing from the log"
+    session.click("//button[@role='tab'][normalize-space()='A file']")
 
 
 def run(args: argparse.Namespace) -> None:
@@ -498,6 +585,9 @@ def run(args: argparse.Namespace) -> None:
             assert event in events, f"{event} missing from the log"
         assert_no_values("the log", log.read_text(encoding="utf-8"), (NAME_IN_FILE,))
         print(f"log: {len(events)} records, no values or file name")
+
+        step("Text for AI: protect a prompt, send it, restore the response")
+        text_for_ai(session, app, log)
 
         step("Kill the engine; the host restarts it on the next action")
         for pid in first_engine:

@@ -1,8 +1,9 @@
 import { useState } from "react";
 
 import type { PolicySummary, RemainingItem, SanitizeResult, VerifyResult } from "../engine/types";
-import { formatBytes } from "../lib/format";
+import { formatBytes, plural } from "../lib/format";
 import { AlertIcon, CheckIcon } from "./icons";
+import { ResponsePanel } from "./ResponsePanel";
 
 const number = new Intl.NumberFormat("en-US");
 
@@ -12,6 +13,13 @@ export type CopyState =
   | { status: "verifying"; result: SanitizeResult }
   | { status: "ready"; result: SanitizeResult; check: VerifyResult }
   | { status: "stale" };
+
+/** Opt-in privacy workspace: the copy shares a conversation's placeholders. */
+export interface Workspace {
+  conversationId: string;
+  shared: boolean;
+  onShare: (shared: boolean) => void;
+}
 
 export interface CopyActions {
   onCreate: () => void;
@@ -28,11 +36,7 @@ function replacedLine(result: SanitizeResult): string {
   return parts.length ? parts.join(" · ") : "Nothing needed to change";
 }
 
-function plural(n: number, one: string, many = `${one}s`): string {
-  return `${number.format(n)} ${n === 1 ? one : many}`;
-}
-
-function RemainingList({ items, label }: { items: RemainingItem[]; label: string }) {
+export function RemainingList({ items, label }: { items: RemainingItem[]; label: string }) {
   return (
     <ul className="remaining" aria-label={label}>
       {items.map((item, i) => (
@@ -115,6 +119,7 @@ export function ProtectedCopy({
   note,
   busy,
   actions,
+  workspace = null,
 }: {
   state: CopyState;
   policy: PolicySummary;
@@ -122,8 +127,10 @@ export function ProtectedCopy({
   note: string | null;
   busy: boolean;
   actions: CopyActions;
+  workspace?: Workspace | null;
 }) {
   const [acknowledged, setAcknowledged] = useState(false);
+  const [restoring, setRestoring] = useState(false);
   const blocked = policy.blocked > 0;
   const working = state.status === "running" || state.status === "verifying";
   const check = state.status === "ready" ? state.check : null;
@@ -205,6 +212,14 @@ export function ProtectedCopy({
               so they can be turned back into the original values later. They are never sent anywhere.
             </p>
           )}
+          {state.result.vault.stored &&
+            (restoring ? (
+              <ResponsePanel key={state.result.artifact_id} scope={{ artifact_id: state.result.artifact_id }} embedded />
+            ) : (
+              <button type="button" className="ghost" onClick={() => setRestoring(true)}>
+                Restore an AI response…
+              </button>
+            ))}
           <p className="report__foot">Your original file was not changed.</p>
         </div>
       ) : (
@@ -222,6 +237,19 @@ export function ProtectedCopy({
             Airlock writes a new file with your choices applied and removes hidden content it cannot check, then
             reads the copy back to make sure nothing protected is left. Your original file is never changed.
           </p>
+          {workspace && (
+            <label className="copy__ack">
+              <input
+                type="checkbox"
+                checked={workspace.shared}
+                onChange={(e) => workspace.onShare(e.target.checked)}
+              />
+              <span>
+                Use the same placeholders as conversation {workspace.conversationId}, so the AI can connect this file
+                with your prompts
+              </span>
+            </label>
+          )}
         </>
       )}
 
