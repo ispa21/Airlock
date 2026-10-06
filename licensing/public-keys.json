@@ -1,0 +1,4 @@
+{
+  "comment": "Public keys the app accepts licences from. Add the entry printed by `airlock_license.py keygen`; never put a private key here.",
+  "keys": []
+}

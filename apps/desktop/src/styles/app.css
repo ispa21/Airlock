@@ -1418,3 +1418,60 @@ select {
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+/* Licence -------------------------------------------------------------------- */
+.license__card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.license__name {
+  margin: 0;
+  font-weight: 650;
+}
+
+.license__actions,
+.license__key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.license__paste,
+.license__activate {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.license__paste textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.license__key input {
+  flex: 1 1 240px;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+.license__machine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.license__machine code {
+  color: var(--ink-2);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}

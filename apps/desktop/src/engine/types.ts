@@ -341,6 +341,26 @@ export interface ExportResult {
   size_bytes?: number;
 }
 
+/** Licence state, checked offline by the host. Nothing is limited by it. */
+export interface LicenseStatus {
+  state: "unlicensed" | "licensed" | "invalid";
+  license: {
+    license_id: string;
+    plan: string;
+    customer: string;
+    email: string | null;
+    seats: number;
+    issued_at: string;
+    updates_until: string | null;
+    /** Activated for (bound to) this computer. */
+    bound: boolean;
+  } | null;
+  problem: EngineError | null;
+  /** One-way hash of this computer's ID, for machine-bound licences. */
+  machine_code: string;
+  activation_available: boolean;
+}
+
 /** Result of `sanitize.run`: a protected copy waiting for verification. */
 export interface SanitizeResult {
   artifact_id: string;

@@ -8,6 +8,7 @@
 4. **Company rules**: custom dictionaries such as internal project names,
    which are themselves confidential.
 5. **Licence integrity**: the signing key and the licence verification path.
+   The machine ID behind a machine code is never shown or sent.
 
 ## Threats and controls
 
@@ -38,7 +39,8 @@
 | Pseudonym mappings exposed | Separate vault folder, one AES-256-GCM record per copy (record id bound as associated data), random 256-bit key wrapped by DPAPI (current user) on Windows; on other platforms by a user-only key file (weaker: readable by anyone who can read the user's files; macOS Keychain is a Phase 12 item). 30-day retention. Never logged, never sent over IPC to the UI except the explicit `vault.restore`. | Phase 5 ✅ |
 | Another website or local process drives the local web app (Phase 13) | Loopback only, random port, per-launch secret required on every call, strict Host and Origin checks against DNS rebinding and cross-site requests, no CORS, same method allowlist and masked previews as the desktop app. | Phase 13 |
 | The web app sends a document somewhere (Phase 14) | The engine runs in a Web Worker inside the page; the site serves static files only and has no upload endpoint. CSP `connect-src 'self'` and no third-party scripts or analytics, so the page cannot reach other origins. Rules, allow-list keys and the vault use WebCrypto keys marked non-extractable, stored in the browser profile. Releases are versioned and reproducible from the repository. | Phase 14 |
-| Licence forgery | Ed25519 signatures verified in the Rust host. Only the public key ships; the private key stays offline (HSM or air-gapped machine). Scanning never depends on licence-server availability. | Phase 10 |
+| Licence forgery | Ed25519 signatures (strict verification) checked offline in the Rust host against the public keys compiled into the app; only public keys ship, the private key stays offline. A changed licence, an unknown issuer or another machine's licence is refused and reported. No feature depends on the licence, and scanning never depends on licence-server availability. | Phase 10 ✅ |
+| Activation leaks data or becomes a tracking channel | Online activation is optional, user-initiated, done by the host (never the engine), HTTPS-only in release builds, and sends only the licence key, a one-way machine code (hash of the machine ID) and the app version. No periodic check-ins. The reference server stores keys hashed and logs no request bodies. | Phase 10 ✅ |
 | Engine crash or hang (e.g. a malicious PDF) | Separate process; request timeouts; automatic restart with a budget; the UI gets an actionable error; the scan is never silently "passed". | Phase 1 ✅ |
 | Tampered installation | The release host verifies the engine executable's SHA-256 (recorded at build time) before every start and refuses a changed engine (`engine_tampered`); all-users installs live in Program Files. Authenticode signing of the engine, host and installer is wired into the build and runs when a certificate is configured. | Phase 8 ✅ (signing needs the certificate) |
 

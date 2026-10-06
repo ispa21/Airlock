@@ -9,6 +9,7 @@ import type {
   EngineError,
   ExtractSummary,
   InspectResult,
+  LicenseStatus,
   PolicyUpdate,
   Profile,
   Progress,
@@ -172,6 +173,23 @@ async function scanned(platform: Platform) {
   await screen.findByRole("heading", { name: "What Airlock found" });
 }
 
+const UNLICENSED: LicenseStatus = {
+  state: "unlicensed",
+  license: null,
+  problem: null,
+  machine_code: "ABCD-EFGH-IJKL-MNOP-QRST",
+  activation_available: true,
+};
+
+const LICENSED: LicenseStatus = {
+  ...UNLICENSED,
+  state: "licensed",
+  license: {
+    license_id: "lic_X", plan: "lifetime", customer: "Acme Pvt Ltd", email: null, seats: 10,
+    issued_at: "2026-10-06T00:00:00Z", updates_until: null, bound: true,
+  },
+};
+
 const CHECKED: VerifyResult = {
   artifact_id: "art_0123456789abcdef",
   status: "passed",
@@ -224,6 +242,11 @@ function fakePlatform(overrides: Partial<Platform> = {}) {
     saveCopy: vi.fn().mockResolvedValue({ saved: true, file_name: "Contract (Airlock protected).docx" }),
     copyText: vi.fn().mockResolvedValue("Contact [PERSON_1] at [EMAIL_1].\n"),
     writeClipboard: vi.fn().mockResolvedValue(undefined),
+    licenseStatus: vi.fn().mockResolvedValue(UNLICENSED),
+    importLicenseFile: vi.fn().mockResolvedValue(LICENSED),
+    importLicenseText: vi.fn().mockResolvedValue(LICENSED),
+    activateLicense: vi.fn().mockResolvedValue(LICENSED),
+    removeLicense: vi.fn().mockResolvedValue(UNLICENSED),
     discardCopy: vi.fn().mockResolvedValue(undefined),
     cancel: vi.fn().mockResolvedValue(undefined),
     onFileDrop: vi.fn(async (handlers: DropHandlers) => {
@@ -817,6 +840,48 @@ describe("App", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(tampered.message);
     expect(screen.getByRole("alert")).toHaveTextContent("Reinstall Airlock from the original installer.");
     expect(screen.getByRole("alert")).not.toHaveTextContent("Your original file was not changed.");
+  });
+
+  it("installs a pasted licence, shows who it belongs to and can remove it", async () => {
+    const { platform } = fakePlatform();
+    renderApp(platform);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Settings" })).toBeEnabled());
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(await screen.findByText("No licence is installed. Every feature is available.")).toBeInTheDocument();
+    expect(screen.getByText("ABCD-EFGH-IJKL-MNOP-QRST")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Paste Licence…" }));
+    await userEvent.type(screen.getByLabelText("Paste the licence from your e-mail"), "AIRLOCK1.k.p.s");
+    await userEvent.click(screen.getByRole("button", { name: "Install Licence" }));
+    expect(platform.importLicenseText).toHaveBeenCalledWith("AIRLOCK1.k.p.s");
+    expect(await screen.findByText("Licensed to Acme Pvt Ltd")).toBeInTheDocument();
+    expect(screen.getByText(/10 seats · issued 2026-10-06 · activated on this computer/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Remove Licence" }));
+    expect(await screen.findByText("No licence is installed. Every feature is available.")).toBeInTheDocument();
+  });
+
+  it("activates online and explains a licence that does not belong here", async () => {
+    const invalid: LicenseStatus = {
+      ...UNLICENSED,
+      state: "invalid",
+      problem: {
+        kind: "license_other_machine",
+        message: "This licence belongs to another computer.",
+        next_step: "Activate your licence key on this computer, or ask for a licence for this machine code.",
+      },
+    };
+    const { platform } = fakePlatform({ licenseStatus: vi.fn().mockResolvedValue(invalid) });
+    renderApp(platform);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Settings" })).toBeEnabled());
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(await screen.findByText("This licence belongs to another computer.")).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("Or activate online with your licence key"), "ALK-ABCDE-FGHJK-MNPQR-STUVW");
+    await userEvent.click(screen.getByRole("button", { name: "Activate" }));
+    expect(platform.activateLicense).toHaveBeenCalledWith("ALK-ABCDE-FGHJK-MNPQR-STUVW");
+    expect(await screen.findByText("Licensed to Acme Pvt Ltd")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Copy" }));
+    expect(platform.writeClipboard).toHaveBeenCalledWith("ABCD-EFGH-IJKL-MNOP-QRST");
   });
 
   it("reports an unavailable engine and retries on request", async () => {

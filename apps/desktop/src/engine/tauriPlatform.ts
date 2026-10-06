@@ -9,6 +9,7 @@ import {
   type EngineInfo,
   type ExportResult,
   type InspectResult,
+  type LicenseStatus,
   type NewRule,
   type Override,
   type PolicyUpdate,
@@ -27,6 +28,15 @@ import {
 async function call<T>(method: string, params: Record<string, unknown> = {}, tag?: string): Promise<T> {
   try {
     return await invoke<T>("engine_call", { method, params, tag: tag ?? null });
+  } catch (error) {
+    throw toEngineError(error);
+  }
+}
+
+/** A host command (not an engine method). */
+async function host<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
+  try {
+    return await invoke<T>(command, args);
   } catch (error) {
     throw toEngineError(error);
   }
@@ -84,6 +94,26 @@ export const tauriPlatform: Platform = {
 
   sanitize(scanId: string, tag: string, onProgress: (progress: Progress) => void) {
     return withProgress(tag, onProgress, () => call<SanitizeResult>("sanitize.run", { scan_id: scanId }, tag));
+  },
+
+  licenseStatus() {
+    return host<LicenseStatus>("license_status");
+  },
+
+  importLicenseFile() {
+    return host<LicenseStatus>("license_import_file");
+  },
+
+  importLicenseText(text: string) {
+    return host<LicenseStatus>("license_import_text", { text });
+  },
+
+  activateLicense(key: string) {
+    return host<LicenseStatus>("license_activate", { key });
+  },
+
+  removeLicense() {
+    return host<LicenseStatus>("license_remove");
   },
 
   verify(artifactId: string, tag: string, onProgress: (progress: Progress) => void) {

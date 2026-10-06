@@ -15,7 +15,7 @@ done when its exit criteria pass on a real run, not when it compiles.
 | 7 | Verification and export | Re-extract the produced artifact, rescan, residual-value check, raw OOXML sweep, block on failure, safe export, AI-safe copy | ✅ Done |
 | 8 | Windows packaging (in progress) | PyInstaller onedir engine, NSIS installer, WebView2 strategy, code signing, firewall rule option, tauri-driver E2E on Windows, clean-VM DoD run | |
 | 9 | ~~Right-click integration~~ | Skipped by decision (2026-10-05): files are opened by drag-and-drop or Browse in every surface | ⏭ Skipped |
-| 10 | Lifetime licensing | Ed25519 signed licences, offline import, online activation (isolated from the engine), local verification | |
+| 10 | Lifetime licensing | Ed25519 signed licences, offline import, online activation (isolated from the engine), local verification | ✅ Done |
 | 11 | Browser extension foundation | MV3 extension for Chrome and Edge. Uses the local app's engine through native messaging when it is installed, otherwise the in-browser engine from Phase 14 | |
 | 12 | Reversible masking & response restoration (queued) | Session/conversation-scoped mapping vault, stable `PERSON_001`-style pseudonyms, local restoration of AI responses (review before restore), outbound privacy check, prompt and clipboard protection, provider-neutral AI adapter layer. Requirements: [REVERSIBLE_MASKING.md](REVERSIBLE_MASKING.md) | |
 | 13 | Local web app | The installed engine serves the same UI to the user's own browser on a loopback address: 127.0.0.1 only, random port, per-launch secret, Host and Origin checks, the same method allowlist as the desktop host. No document leaves the computer | |
@@ -341,3 +341,35 @@ restoring AI responses (Phase 12).
 * Remaining: the Windows `Package` workflow run (build, install, check,
   uninstall on a fresh runner) and the clean-VM check in
   [PACKAGING.md](PACKAGING.md).
+
+## Phase 10 verification log
+
+* Decisions: a licence identifies the customer only; nothing is limited with
+  or without one (to be revisited). Customers can import a signed licence
+  file or paste it (fully offline), or activate online with a licence key
+  against a server the vendor hosts.
+* Format: one line, `AIRLOCK1.<key id>.<payload>.<signature>`, Ed25519 over
+  the JSON payload; lifetime plan, seats, optional updates-until date and
+  optional machine binding. Machine codes are 100-bit SHA-256 hashes of the
+  computer's ID, so the ID never leaves the computer.
+* Issuing: `licensing/airlock_license.py` (keygen, issue, verify); public
+  keys in `licensing/public-keys.json`, compiled into the host; private keys
+  stay in the git-ignored `licensing/keys/`. Reference activation server:
+  `licensing/activation_server.py` (hashed keys, seat counting, machine-bound
+  licences, no request bodies in its log, rate limit).
+* Host: offline verification on start (`license.rs`), Settings → Licence
+  (import file through the native dialog, paste, activate, machine code,
+  remove). Activation is the app's only network request, user-initiated,
+  from the host only, HTTPS-only in release builds, proxy-aware.
+* Tests: licensing tool and server 6, host 26 (including a licence issued by
+  the Python tool and verified in Rust, tampering, unknown issuers, other
+  machines, expiry), UI 37.
+* Real app (Linux, Xvfb), development key and the reference server on
+  localhost: online activation with the key typed in lower case gave
+  "Licensed to Acme Pvt Ltd · 2 seats · activated on this computer"; the
+  server log held request lines only; the host log held `license_activated`
+  and no key, customer or machine code. Changing one field of the stored
+  licence showed "This licence has been changed, so it is not valid" on the
+  next start, while scanning stayed available. A bug found on the way: the
+  activation request went through the environment's proxy even for a
+  loopback server; loopback URLs now bypass it.

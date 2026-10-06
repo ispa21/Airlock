@@ -417,6 +417,32 @@ export const previewPlatform: Platform = {
     };
   },
 
+  async licenseStatus() {
+    return {
+      state: "unlicensed" as const,
+      license: null,
+      problem: null,
+      machine_code: "PREV-IEWM-ACHI-NECO-DE00",
+      activation_available: false,
+    };
+  },
+
+  async importLicenseFile() {
+    throw readOnly();
+  },
+
+  async importLicenseText() {
+    throw readOnly();
+  },
+
+  async activateLicense() {
+    throw readOnly();
+  },
+
+  async removeLicense() {
+    return previewPlatform.licenseStatus();
+  },
+
   async verify(artifactId: string) {
     await delay(600);
     return {

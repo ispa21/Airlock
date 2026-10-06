@@ -29,7 +29,7 @@ truth. Product requirements live in the PRD; security is detailed in
 │  │ Drop zone, report,  │ ───────▶  │ commands.rs  (method allowlist)      │    │
 │  │ review, export      │ ◀───────  │ engine.rs    (supervisor + JSON-RPC) │    │
 │  └─────────────────────┘  events   │ logsink.rs   (content-free log file) │    │
-│      no fs / no http               │ licensing    (Phase 10, Ed25519)     │    │
+│      no fs / no http               │ license.rs   (offline Ed25519 check) │    │
 │                                    └──────────────┬───────────────────────┘    │
 └───────────────────────────────────────────────────┼────────────────────────────┘
                                    stdin/stdout pipes│ JSON-RPC 2.0, one object per line
@@ -184,7 +184,7 @@ which is never shipped.
 | 5 ✅ | cryptography (AES-GCM), reportlab (rebuilt PDFs); DPAPI through `ctypes` (no pywin32) | — |
 | 7 | — | — |
 | 8 ✅ | pyinstaller (build-only `package` group) | NSIS via tauri-bundler, sha2 (engine integrity), signtool when configured. See [PACKAGING.md](PACKAGING.md) |
-| 10 | — | ed25519-dalek, base64 |
+| 10 ✅ | — (licensing tool and server: `cryptography`) | ed25519-dalek, base64, ureq (rustls with the system certificate store), winreg. See [licensing/README.md](../licensing/README.md) |
 
 Every dependency must work offline and be bundleable. Licences are checked for
 commercial compatibility before adoption (AGPL/GPL is excluded from the

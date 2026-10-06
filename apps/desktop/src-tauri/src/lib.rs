@@ -5,6 +5,8 @@
 
 mod commands;
 mod engine;
+mod license;
+mod licensing;
 mod locate;
 mod logsink;
 
@@ -29,6 +31,13 @@ pub fn run() {
             let notify: NotificationSink = Arc::new(move |message| {
                 let _ = handle.emit("engine://notification", message);
             });
+            // Licences are checked by the host only; the engine never sees them.
+            let data_dir = app
+                .path()
+                .app_local_data_dir()
+                .unwrap_or_else(|_| std::env::temp_dir().join("com.airlock.desktop"));
+            app.manage(Arc::new(licensing::Licensing::new(data_dir, log.clone())));
+
             let engine = Arc::new(Engine::new(locate::launch_spec(app.handle()), notify, log));
 
             // Warm the engine up so the UI can show "ready" without waiting
@@ -44,7 +53,12 @@ pub fn run() {
             commands::engine_status,
             commands::engine_call,
             commands::engine_cancel,
-            commands::export_save
+            commands::export_save,
+            licensing::license_status,
+            licensing::license_import_text,
+            licensing::license_import_file,
+            licensing::license_activate,
+            licensing::license_remove
         ])
         .build(tauri::generate_context!())
         .expect("failed to build the Airlock application");

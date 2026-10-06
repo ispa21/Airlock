@@ -119,6 +119,22 @@ The UI can only call methods in the host's allowlist
 (`apps/desktop/src-tauri/src/commands.rs`). Lifecycle methods are never
 exposed.
 
+### Host commands (UI → host, not engine methods)
+
+| Command | Result |
+| --- | --- |
+| `engine_status()` | `EngineInfo`; starts the engine if needed |
+| `engine_call(method, params, tag?)` | an allowlisted engine method (see above) |
+| `engine_cancel(tag)` | `bool` |
+| `export_save(artifactId, asText, acknowledgeReview)` | `{saved, file_name?, size_bytes?}`; the host shows the save dialog (Phase 7) |
+| `license_status()` | `{state: unlicensed \| licensed \| invalid, license, problem, machine_code, activation_available}` |
+| `license_import_file()` | status; the host shows the open dialog and verifies the file |
+| `license_import_text(text)` | status, or a `license_*` error (`license_bad_signature`, `license_unknown_key`, `license_other_machine`, `license_expired`, `license_malformed`, `license_not_found`) |
+| `license_activate(key)` | status, or `license_key_invalid`, `license_key_unknown`, `license_no_seats`, `activation_busy`, `activation_unreachable`, `activation_unavailable` |
+| `license_remove()` | status |
+
+Licences never reach the engine. See [licensing/README.md](../licensing/README.md).
+
 ### UI request tags (host ⇄ UI)
 
 `engine_call(method, params, tag?)` accepts an optional opaque tag

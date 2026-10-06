@@ -45,7 +45,13 @@ these notices.
 | Component | Licence |
 | --- | --- |
 | Tauri 2, tauri-plugin-dialog, wry, tao | Apache-2.0 / MIT |
-| sha2 | Apache-2.0 / MIT (engine integrity check) |
+| sha2 | Apache-2.0 / MIT (engine integrity check, machine code) |
+| ed25519-dalek, curve25519-dalek | BSD-3-Clause (licence signatures) |
+| base64 | Apache-2.0 / MIT |
+| ureq, rustls, rustls-native-certs, webpki | Apache-2.0 / MIT / ISC (online licence activation only) |
+| ring | Apache-2.0 AND ISC |
+| webpki-roots | CDLA-Permissive-2.0 / MPL-2.0 (unmodified) |
+| winreg | MIT (reads the Windows machine ID for the machine code) |
 
 Windows DPAPI is called through Python's standard `ctypes` (no pywin32).
 | serde, serde_json | Apache-2.0 / MIT |

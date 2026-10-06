@@ -2,6 +2,7 @@ import type {
   EngineInfo,
   ExportResult,
   InspectResult,
+  LicenseStatus,
   NewRule,
   Override,
   PolicyUpdate,
@@ -60,6 +61,14 @@ export interface Platform {
   setDefaultProfile(id: string): Promise<void>;
   /** Write the protected copy (in Airlock's private work folder). Cancellable by `tag`. */
   sanitize(scanId: string, tag: string, onProgress: (progress: Progress) => void): Promise<SanitizeResult>;
+  licenseStatus(): Promise<LicenseStatus>;
+  /** The host shows the open dialog and checks the file. */
+  importLicenseFile(): Promise<LicenseStatus>;
+  /** Licence text pasted from an e-mail. */
+  importLicenseText(text: string): Promise<LicenseStatus>;
+  /** Online activation with a licence key (the app's only network request). */
+  activateLicense(key: string): Promise<LicenseStatus>;
+  removeLicense(): Promise<LicenseStatus>;
   /** Read the copy back, search it and scan it again. Cancellable by `tag`. */
   verify(artifactId: string, tag: string, onProgress: (progress: Progress) => void): Promise<VerifyResult>;
   /**

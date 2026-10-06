@@ -93,7 +93,7 @@ pub struct EngineError {
 }
 
 impl EngineError {
-    fn new(kind: &str, message: &str, next_step: &str) -> Self {
+    pub(crate) fn new(kind: &str, message: &str, next_step: &str) -> Self {
         Self {
             kind: kind.into(),
             message: message.into(),

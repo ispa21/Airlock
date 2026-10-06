@@ -6,6 +6,7 @@ import {
   type CategoryGroup,
   type EngineError,
   type EntityTypeInfo,
+  type LicenseStatus,
   type MaskStyle,
   type PolicyAction,
   type Profile,
@@ -23,8 +24,8 @@ const KIND_LABELS: Record<RuleKind, string> = {
 };
 
 export const STYLE_LABELS: Record<MaskStyle, string> = {
-  typed_placeholder: "Typed [EMAIL_1]",
-  placeholder: "Plain [MASKED_1]",
+  typed_placeholder: "Placeholder by type",
+  placeholder: "Plain placeholder",
   synthetic: "Fake value",
   partial: "Partly hidden",
 };
@@ -420,6 +421,157 @@ function AllowListSection({ onChanged }: { onChanged: () => void }) {
   );
 }
 
+function LicenseSection() {
+  const platform = usePlatform();
+  const [status, setStatus] = useState<LicenseStatus | null>(null);
+  const [pasting, setPasting] = useState(false);
+  const [text, setText] = useState("");
+  const [key, setKey] = useState("");
+  const [copied, setCopied] = useState(false);
+  // Licence changes don't affect scans, so they never trigger a refresh.
+  const { error, setError, busy, run } = useChange(useCallback(() => undefined, []));
+
+  useEffect(() => {
+    platform
+      .licenseStatus()
+      .then(setStatus)
+      .catch((err: unknown) => setError(toEngineError(err)));
+  }, [platform, setError]);
+
+  const apply = async (job: () => Promise<LicenseStatus>) => {
+    const next = await run(job);
+    if (next) {
+      setStatus(next);
+      setPasting(false);
+      setText("");
+      setKey("");
+    }
+  };
+
+  const license = status?.license;
+  return (
+    <section className="report settings__section" aria-labelledby="license-title">
+      <header className="report__head">
+        <h2 id="license-title">Licence</h2>
+        <span className="report__meta">Checked on this device</span>
+      </header>
+      {status?.state === "licensed" && license ? (
+        <div className="license__card">
+          <p className="license__name">Licensed to {license.customer}</p>
+          <p className="report__structure">
+            Lifetime licence · {license.seats === 1 ? "1 seat" : `${license.seats} seats`} · issued{" "}
+            {license.issued_at.slice(0, 10)}
+            {license.updates_until ? ` · updates until ${license.updates_until}` : ""}
+            {license.bound ? " · activated on this computer" : ""}
+          </p>
+        </div>
+      ) : status?.state === "invalid" && status.problem ? (
+        <ErrorNotice error={status.problem} aboutFile={false} />
+      ) : (
+        <p className="report__foot">No licence is installed. Every feature is available.</p>
+      )}
+      {error && <ErrorNotice error={error} aboutFile={false} />}
+
+      {status?.state !== "licensed" && (
+        <>
+          <div className="license__actions">
+            <button type="button" className="ghost" disabled={busy} onClick={() => void apply(platform.importLicenseFile)}>
+              Import Licence File…
+            </button>
+            <button type="button" className="ghost" disabled={busy} onClick={() => setPasting(!pasting)}>
+              Paste Licence…
+            </button>
+          </div>
+          {pasting && (
+            <div className="license__paste">
+              <label htmlFor="license-text" className="field__label">
+                Paste the licence from your e-mail
+              </label>
+              <textarea
+                id="license-text"
+                rows={4}
+                spellCheck={false}
+                value={text}
+                maxLength={64 * 1024}
+                onChange={(e) => setText(e.target.value)}
+              />
+              <button
+                type="button"
+                className="primary"
+                disabled={busy || !text.trim()}
+                onClick={() => void apply(() => platform.importLicenseText(text))}
+              >
+                Install Licence
+              </button>
+            </div>
+          )}
+          {status?.activation_available && (
+            <form
+              className="license__activate"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void apply(() => platform.activateLicense(key));
+              }}
+            >
+              <label htmlFor="license-key" className="field__label">
+                Or activate online with your licence key
+              </label>
+              <div className="license__key">
+                <input
+                  id="license-key"
+                  type="text"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="ALK-XXXXX-XXXXX-XXXXX-XXXXX"
+                  value={key}
+                  onChange={(e) => setKey(e.target.value)}
+                />
+                <button type="submit" className="ghost" disabled={busy || !key.trim()}>
+                  Activate
+                </button>
+              </div>
+              <p className="report__foot">
+                Activation sends only the key, this computer's machine code and the app version. Your documents never
+                leave this device.
+              </p>
+            </form>
+          )}
+        </>
+      )}
+
+      {status && (
+        <p className="license__machine">
+          <span>
+            Machine code <code>{status.machine_code}</code>
+          </span>
+          <button
+            type="button"
+            className="link"
+            onClick={() =>
+              void platform
+                .writeClipboard(status.machine_code)
+                .then(() => setCopied(true))
+                .catch(() => undefined)
+            }
+          >
+            {copied ? "Copied" : "Copy"}
+          </button>
+        </p>
+      )}
+      {status?.state !== "unlicensed" && (
+        <button
+          type="button"
+          className="ghost settings__clear"
+          disabled={busy}
+          onClick={() => void apply(platform.removeLicense)}
+        >
+          Remove Licence
+        </button>
+      )}
+    </section>
+  );
+}
+
 /**
  * Company rules, privacy profiles and remembered decisions. Everything here
  * is stored on this device only. `onClose(changed)` lets the caller refresh
@@ -439,6 +591,7 @@ export function Settings({ onClose }: { onClose: (changed: boolean) => void }) {
       <RulesSection onChanged={markChanged} />
       <ProfilesSection onChanged={markChanged} />
       <AllowListSection onChanged={markChanged} />
+      <LicenseSection />
     </div>
   );
 }

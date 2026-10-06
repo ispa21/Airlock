@@ -83,6 +83,7 @@ ignore = [
 # Build and release tools: they print progress and run fixed local commands.
 "packaging/**" = ["T20", "S603", "S607"]
 "../scripts/**" = ["T20", "S603", "S607"]
+"../licensing/**" = ["T20", "S101", "S603", "S607"]
 
 [tool.mypy]
 python_version = "3.11"
