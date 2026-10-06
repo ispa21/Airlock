@@ -100,7 +100,7 @@ def _rust_section() -> list[str]:
     raw = subprocess.run(
         ["cargo", "metadata", "--format-version", "1", "--filter-platform",
          "x86_64-pc-windows-msvc", "--manifest-path", str(TAURI / "Cargo.toml")],
-        capture_output=True, check=True, text=True,
+        capture_output=True, check=True, text=True, encoding="utf-8",
     ).stdout  # fmt: skip
     data = json.loads(raw)
     packages = {p["id"]: p for p in data["packages"]}
