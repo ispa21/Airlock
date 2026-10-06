@@ -30,10 +30,10 @@ jobs:
       - run: uv sync --locked
       - run: uv run ruff check .
       - run: uv run ruff format --check .
-      - name: Lint the packaging and licensing scripts
+      - name: Lint the packaging, licensing and extension scripts
         run: |
-          uv run ruff check --config pyproject.toml ../scripts ../licensing
-          uv run ruff format --check ../scripts ../licensing
+          uv run ruff check --config pyproject.toml ../scripts ../licensing ../apps/extension/scripts
+          uv run ruff format --check ../scripts ../licensing ../apps/extension/scripts
       - name: Licensing tool and activation server
         run: uv run pytest ../licensing/tests -q -p no:cacheprovider
       - run: uv run mypy
@@ -59,6 +59,19 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  extension:
+    name: Browser extension
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/extension
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
 
   host:
     name: Desktop host (${{ matrix.os }})

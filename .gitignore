@@ -36,3 +36,4 @@ Thumbs.db
 apps/desktop/src-tauri/resources/engine.sha256
 apps/desktop/src-tauri/tauri.sign.conf.json
 apps/desktop/src-tauri/resources/THIRD_PARTY_NOTICES.txt
+apps/extension/.host/

@@ -90,8 +90,8 @@ as the desktop host. The desktop app keeps stdio, for the reasons below.
 A localhost HTTP server would be reachable by every local process and, via DNS
 rebinding, by web pages. It would need a token, and it may trigger firewall or
 antivirus prompts. With stdio there is nothing to connect to: only the parent
-holds the pipes. The same transport is what Chrome/Edge native messaging uses,
-which suits the V2 browser extension. See [IPC.md](IPC.md).
+holds the pipes. Chrome/Edge native messaging is the same kind of transport,
+which the browser extension uses (Phase 11). See [IPC.md](IPC.md).
 
 ## 3. Core flow
 
@@ -123,11 +123,12 @@ Airlock/
 │   │       ├── src/logsink.rs       Content-free persistent log
 │   │       ├── src/locate.rs        Finds the bundled or dev engine
 │   │       └── capabilities/        Minimal Tauri permissions
-│   └── browser-extension/           V2 placeholder (architecture notes only)
+│   └── extension/                   Chrome/Edge extension (MV3): popup, service worker,
+│                                    native-messaging bridge to the installed engine
 ├── engine/                          Python engine (uv project)
 │   ├── src/airlock_engine/
 │   │   ├── cli.py                   Entry point: guard → logging → stdio takeover → serve
-│   │   ├── ipc/                     JSON-RPC protocol + threaded stdio server
+│   │   ├── ipc/                     JSON-RPC protocol, threaded stdio server, native-messaging bridge
 │   │   ├── api/                     RPC method handlers (single registry)
 │   │   ├── core/                    Data model, interfaces, SensitiveValue, user errors
 │   │   ├── security/                Network guard, input-file validation
@@ -421,6 +422,41 @@ export.text  ─▶ readable text of the checked copy (clipboard: "Copy Text for
   engine still validates the path (absolute, existing folder, the copy's own
   extension, not the original, not Airlock's folders, not a link) and writes
   atomically.
+
+## 5g. Browser extension (Phase 11)
+
+```
+page selection ─(user: right-click "Protect selected text")─┐
+pasted text ──────────────────────────────────────────────── popup ──sendMessage──▶ service worker
+                                                                                   │ connectNative
+                                                         Chrome / Edge starts ◀────┘ com.airlock.engine
+                                                         airlock-engine.exe chrome-extension://<id>/
+                                                           └─ origin check ─ restricted registry ─ text.protect
+```
+
+* **The installed engine does the work.** The browser starts the engine
+  itself (native messaging): no socket, no running desktop app needed. The
+  engine recognises the extension origin as its first argument, checks it,
+  and serves only `system.hello`, `system.health`, `profiles.list` and
+  `text.protect` with the browser's length-prefixed framing (IPC.md).
+* **Same decisions as the app.** `text.protect` runs the document pipeline
+  on a single text segment: every detector, company rules, the allow-list
+  and the chosen profile, then the same replacements and value sweep as a
+  protected copy. Blocked items (passwords, keys, tokens) are removed and
+  reported, because there is no "fix it first" step for a snippet. The
+  answer carries the protected text and masked previews only.
+* **The extension holds no detection logic** and cannot reach the network
+  (CSP `connect-src 'none'`, no host permissions, no content scripts). Its
+  service worker is the only part that talks to the engine, and only for
+  the extension's own pages. The connection closes after 5 idle minutes so
+  the engine (and its language model) does not stay in memory.
+* **Without the app** the popup says the app was not found. Phase 14 adds the
+  in-browser engine as the fallback.
+* Installation: the NSIS installer writes the host manifest next to the app
+  and registers it for Chrome and Edge (HKCU per user, HKLM for all users);
+  uninstalling removes the keys. For development,
+  `apps/extension/scripts/register_host.py` registers the engine from
+  `engine/.venv`.
 
 ## 6. Data model
 

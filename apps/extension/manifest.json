@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Airlock",
+  "version": "0.1.0",
+  "description": "Protect sensitive data before you paste it into AI tools. Text is checked on your computer by the Airlock app; nothing is sent anywhere.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAktJ0o55iK0an0nrauMdkdUWgj86tIeATFK1OJrLiP79Ux6txJMhj4c+/qOu9Ci9l8UzgiDQcxV8dflde31bDYC8/kTXGV98ZnJS5yKkDDWcZineWZVWHJ1PkQgaWYiK3StProgT5FfyeqERPNKKeR1h0r3lRU2+OxASKM6j4L91LkjAueccHX9Bu8kWkdlKO0V+zSlsbJq2LrWieG5i6zttIfoMFPeQT9l412sGpiKz4MZNQp6ZEBCi9b8Nyexl5U+73GGLFW4k1JY5BorVD13O8uA6aO/iqzC+TdnjxOoCO87Cvr47OpA8VnmMMAK2A324mcskjrzOXxYeOKc0VbQIDAQAB",
+  "minimum_chrome_version": "116",
+  "permissions": ["nativeMessaging", "contextMenus", "storage", "clipboardWrite"],
+  "background": { "service_worker": "src/background.js", "type": "module" },
+  "action": {
+    "default_title": "Airlock",
+    "default_popup": "src/popup.html",
+    "default_icon": { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png" }
+  },
+  "icons": { "16": "icons/16.png", "48": "icons/48.png", "128": "icons/128.png" },
+  "content_security_policy": {
+    "extension_pages": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+  }
+}

@@ -11,10 +11,11 @@ only then lets you export an AI-safe copy. Everything runs on the device; no
 external LLM, OCR or NER service is ever used, and the privacy engine works
 with the internet disabled.
 
-> Status: **Phase 2 complete**: desktop shell, local engine, IPC, and local
-> extraction of every text-bearing part of PDF, Office, text/code/config and
-> image files (with offline OCR). Detection is next. See
-> [docs/ROADMAP.md](docs/ROADMAP.md).
+> Status: the desktop app scans, protects, verifies and exports documents
+> (Phases 0-7), installs on Windows (Phase 8), carries lifetime licences
+> (Phase 10), and a Chrome/Edge extension protects text through the installed
+> engine (Phase 11). Reversible masking with response restoration is next.
+> See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Repository
 
@@ -22,8 +23,8 @@ with the internet disabled.
 | --- | --- |
 | `apps/desktop` | Tauri 2 app: React + TypeScript UI (`src/`), Rust host (`src-tauri/`) |
 | `engine` | Python local privacy engine (JSON-RPC over stdio) |
-| `apps/browser-extension` | V2 placeholder |
-| `licensing` | Offline license-issuer tooling (never shipped) |
+| `apps/extension` | Chrome/Edge extension (Manifest V3); talks to the installed engine through native messaging |
+| `licensing` | Licence issuing tool and reference activation server (never shipped) |
 | `tests` | Cross-component fixtures and end-to-end suites |
 | `docs` | [Architecture](docs/ARCHITECTURE.md) · [IPC](docs/IPC.md) · [Security](docs/SECURITY.md) · [Testing](docs/TESTING.md) · [Roadmap](docs/ROADMAP.md) · [Third-party](docs/THIRD_PARTY.md) |
 
@@ -51,6 +52,7 @@ Checks:
 cd engine && uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run pytest
 cd apps/desktop && npm run typecheck && npm test
 cd apps/desktop/src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+cd apps/extension && npm test
 ```
 
 `npm run dev` on its own opens the UI in a browser preview with a mock engine

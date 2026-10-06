@@ -84,6 +84,7 @@ ignore = [
 "packaging/**" = ["T20", "S603", "S607"]
 "../scripts/**" = ["T20", "S603", "S607"]
 "../licensing/**" = ["T20", "S101", "S603", "S607"]
+"../apps/extension/scripts/**" = ["T20"]
 
 [tool.mypy]
 python_version = "3.11"

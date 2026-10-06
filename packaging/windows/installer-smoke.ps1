@@ -9,10 +9,14 @@
     2. The all-users install added the two firewall rules for the engine.
     3. The installed engine passes the stdio smoke test (language model,
        OCR, PDF, verification), run from the repository's engine folder.
-    4. The installed app starts and its host completes the engine handshake
+    4. Chrome and Edge find the engine as the extension's native-messaging
+       host, and the engine answers the way the extension expects
+       (packaging/bridge_smoke.py does what the browser does).
+    5. The installed app starts and its host completes the engine handshake
        (the host checks the engine's SHA-256 first).
-    5. Closing the app leaves no engine process behind.
-    6. The silent uninstall removes the files and the firewall rules.
+    6. Closing the app leaves no engine process behind.
+    7. The silent uninstall removes the files, the firewall rules and the
+       browser registrations.
 
 .PARAMETER Installer
   Path to Airlock_<version>_x64-setup.exe.
@@ -25,6 +29,25 @@ $dir = Join-Path $env:ProgramFiles "Airlock"
 $repo = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 
 function Step($text) { Write-Host "`n== $text" }
+
+$hostKeys = @(
+  "Software\Google\Chrome\NativeMessagingHosts\com.airlock.engine",
+  "Software\Microsoft\Edge\NativeMessagingHosts\com.airlock.engine"
+)
+
+# The browsers read both registry views; the installer may write either.
+function HostManifest($key) {
+  foreach ($view in [Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32) {
+    $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, $view)
+    $k = $base.OpenSubKey($key)
+    if ($k) {
+      $value = $k.GetValue("")
+      $k.Close()
+      if ($value) { return $value }
+    }
+  }
+  return $null
+}
 
 Step "Install for all users (silent)"
 $p = Start-Process -FilePath $Installer -ArgumentList "/S", "/ALLUSERS" -Wait -PassThru
@@ -48,6 +71,20 @@ Push-Location (Join-Path $repo "engine")
 try {
   uv run python packaging/smoke.py $engine (Join-Path $env:RUNNER_TEMP "airlock-smoke")
   if ($LASTEXITCODE -ne 0) { throw "engine smoke test failed" }
+} finally { Pop-Location }
+
+Step "Browser extension host (Chrome and Edge)"
+$manifest = Join-Path $dir "native-messaging-host.json"
+foreach ($key in $hostKeys) {
+  $value = HostManifest $key
+  if ($value -ne $manifest) { throw "HKLM\$key is '$value', expected '$manifest'" }
+}
+if (-not (Test-Path $manifest)) { throw "the host manifest was not installed" }
+Write-Host "registered for Chrome and Edge: $manifest"
+Push-Location (Join-Path $repo "engine")
+try {
+  uv run python packaging/bridge_smoke.py $manifest
+  if ($LASTEXITCODE -ne 0) { throw "bridge smoke test failed" }
 } finally { Pop-Location }
 
 Step "App starts and its host completes the engine handshake"
@@ -82,5 +119,8 @@ for ($i = 0; $i -lt 60 -and (Test-Path $engine); $i++) { Start-Sleep -Seconds 2 
 if (Test-Path $engine) { throw "the engine is still installed after uninstalling" }
 $rules = @(Get-NetFirewallRule -DisplayName $rule -ErrorAction SilentlyContinue)
 if ($rules.Count -ne 0) { throw "firewall rules left after uninstalling" }
+foreach ($key in $hostKeys) {
+  if (HostManifest $key) { throw "HKLM\$key left after uninstalling" }
+}
 
 Write-Host "`ninstaller smoke test passed"

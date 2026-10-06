@@ -3,7 +3,8 @@
   "bundle": {
     "resources": {
       "resources/engine": "engine",
-      "resources/THIRD_PARTY_NOTICES.txt": "THIRD_PARTY_NOTICES.txt"
+      "resources/THIRD_PARTY_NOTICES.txt": "THIRD_PARTY_NOTICES.txt",
+      "windows/native-messaging-host.json": "native-messaging-host.json"
     }
   }
 }

@@ -18,6 +18,7 @@ property.
 | Network isolation | pytest (fresh interpreters) + `unshare -n` in CI | Guard blocks DNS, TCP, UDP, `urllib`, `http.client`, IPv6; loopback still works; proxy variables removed. The full suite also runs in a network namespace with no network. |
 | Host | `cargo test` | Supervisor against the real engine and against fake engines (crash, restart budget, incompatible handshake, timeout, missing binary); RPC error mapping; log allowlist; UI method allowlist. |
 | UI | vitest + Testing Library | Drop/browse/inspect flow, error explanation, multi-file handling, engine unavailable/retry, never claiming local processing without network isolation. |
+| Browser extension | `node --test` (apps/extension) + pytest (`test_bridge.py`) | Bridge: JSON-RPC matching, notifications ignored, error mapping, "app not found" vs "connection closed", timeouts, idle disconnect and reconnect; popup text. Engine side: native-messaging framing, origin refusal, method allowlist, size limits, `text.protect` (placeholders, blocked secrets removed, repeats swept, company rules and allow-list applied, nothing logged), and the extension ID derived from the manifest key. Real run: Chromium with the unpacked extension and the registered development engine. |
 | Desktop end to end | Real app under Xvfb on Linux (dev); **tauri-driver/WebDriver on `windows-latest`** (Phase 8) | Launch, engine handshake, real file dialogs, crash recovery, graceful shutdown, no orphan processes, log contents. |
 | Release acceptance | Scripted checklist on a clean Windows VM | PRD §36 Definition of Done, Wi-Fi disabled. |
 
@@ -132,6 +133,9 @@ cd apps/desktop/src-tauri && cargo test && cargo clippy --all-targets -- -D warn
 
 # UI
 cd apps/desktop && npm ci && npm run typecheck && npm test
+
+# browser extension
+cd apps/extension && npm test
 
 # offline (Linux): the whole engine suite with no network at all
 unshare -rn bash -c 'ip link set lo up; cd engine && .venv/bin/python -m pytest'

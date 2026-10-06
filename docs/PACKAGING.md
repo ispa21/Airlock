@@ -13,6 +13,8 @@ C:\Program Files\Airlock\            (all users)   or   %LOCALAPPDATA%\Airlock\ 
 │   └── _internal\                   Python, spaCy + English model, OCR models,
 │                                    PDFium, ONNX Runtime, OpenCV, Vera fonts
 ├── THIRD_PARTY_NOTICES.txt          every shipped component and its licence text
+├── native-messaging-host.json       lets Chrome and Edge start the engine for the
+│                                    Airlock extension (Phase 11)
 └── uninstall.exe
 ```
 
@@ -51,9 +53,11 @@ The `Package` workflow (`.github/workflows/package.yml`) runs all of this on
 `windows-latest`, uploads both installers, then runs
 `packaging/windows/installer-smoke.ps1` on the fresh runner: silent
 all-users install, firewall rules present, the installed engine passes the
-smoke test, the installed app completes the engine handshake, no engine
-process is left after closing, and the silent uninstall removes the files and
-the rules.
+smoke test, Chrome and Edge are registered and the engine answers as the
+extension's native-messaging host (`engine/packaging/bridge_smoke.py`), the
+installed app completes the engine handshake, no engine process is left after
+closing, and the silent uninstall removes the files, the rules and the browser
+registrations.
 
 ## WebView2
 
@@ -74,6 +78,12 @@ so they are covered. The uninstaller removes the rules. A per-user install
 cannot change the firewall; administrators can add the same rules with
 `packaging/windows/firewall.ps1` (also usable from Intune or Group Policy).
 The engine's in-process network guard applies in every mode.
+
+Both modes register the engine for the browser extension: the key
+`Software\Google\Chrome\NativeMessagingHosts\com.airlock.engine` and its
+Edge equivalent (under HKCU for one user, HKLM for all users) point to
+`native-messaging-host.json`, which allows only the Airlock extension's ID.
+The uninstaller removes both keys.
 
 ## Integrity
 
@@ -103,6 +113,9 @@ the network disconnected (use the offline installer):
    each protected copy; copy the text of one for AI.
 4. Add a company rule, mark one finding "not sensitive", scan again.
 5. Close Airlock: no `airlock-engine.exe` remains in Task Manager.
+   Load `apps/extension` unpacked in Edge (and Chrome if installed), protect
+   a pasted prompt with an e-mail and a password, copy the result; after
+   five idle minutes no `airlock-engine.exe` remains.
 6. Uninstall: the install folder and the firewall rules are gone; user data
    in `%LOCALAPPDATA%\com.airlock.desktop` is kept, as with other apps.
 7. Confirm the log (`%LOCALAPPDATA%\com.airlock.desktop\logs\airlock.log`)

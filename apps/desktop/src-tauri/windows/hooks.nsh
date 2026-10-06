@@ -8,6 +8,10 @@
 ; Administrators can add the same rules with packaging/windows/firewall.ps1.
 
 !define AIRLOCK_FW_RULE "Airlock privacy engine (no network)"
+; Browser extension bridge (Phase 11): Chrome and Edge start the engine for the
+; Airlock extension only (see native-messaging-host.json, allowed_origins).
+!define AIRLOCK_NM_CHROME "Software\Google\Chrome\NativeMessagingHosts\com.airlock.engine"
+!define AIRLOCK_NM_EDGE "Software\Microsoft\Edge\NativeMessagingHosts\com.airlock.engine"
 
 !macro AIRLOCK_FW_REMOVE
   nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="${AIRLOCK_FW_RULE}"'
@@ -15,6 +19,9 @@
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
+  ; SHCTX is HKCU for a per-user install and HKLM for an all-users install.
+  WriteRegStr SHCTX "${AIRLOCK_NM_CHROME}" "" "$INSTDIR\native-messaging-host.json"
+  WriteRegStr SHCTX "${AIRLOCK_NM_EDGE}" "" "$INSTDIR\native-messaging-host.json"
   ${If} $MultiUser.InstallMode == "AllUsers"
     ; Re-installs and updates replace the rules instead of adding duplicates.
     !insertmacro AIRLOCK_FW_REMOVE
@@ -26,6 +33,8 @@
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
+  DeleteRegKey SHCTX "${AIRLOCK_NM_CHROME}"
+  DeleteRegKey SHCTX "${AIRLOCK_NM_EDGE}"
   ${If} $MultiUser.InstallMode == "AllUsers"
     !insertmacro AIRLOCK_FW_REMOVE
   ${EndIf}

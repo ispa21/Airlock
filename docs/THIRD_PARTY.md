@@ -52,11 +52,16 @@ these notices.
 | ring | Apache-2.0 AND ISC |
 | webpki-roots | CDLA-Permissive-2.0 / MPL-2.0 (unmodified) |
 | winreg | MIT (reads the Windows machine ID for the machine code) |
-
-Windows DPAPI is called through Python's standard `ctypes` (no pywin32).
 | serde, serde_json | Apache-2.0 / MIT |
 | React, React DOM | MIT |
 | @tauri-apps/api, @tauri-apps/plugin-dialog | Apache-2.0 / MIT |
+
+Windows DPAPI is called through Python's standard `ctypes` (no pywin32).
+
+## Browser extension (Phase 11)
+
+No third-party code: the extension is plain JavaScript, HTML and CSS, and
+its tests use Node's built-in test runner. The icons are Airlock's own.
 
 ## Development only (not shipped)
 

@@ -63,6 +63,7 @@ The host restarts a crashed engine on the next request, at most 3 restarts per
 | `vault.status` | yes | `{}` | `{protection: dpapi \| file \| memory, records}` |
 | `verify.run` | yes (cancellable) | `{artifact_id}` | `{artifact_id, status: passed \| review \| failed, passed, checked{protected_values, segments, ocr_used}, remaining_count, new_count, remaining[{reason: protected \| new, entity_type, entity_label, preview, location{kind, label}, hidden}], unreadable[{label, count}], kept_count, replacement_count, duration_ms}`. Reads the copy back in an isolated worker (OCR if the scan used it), searches its stored bytes (every Office part decompressed) and runs every detector again. Stages: extraction stages, then `raw`, `prepare`, `detect` |
 | `export.text` | yes | `{artifact_id, acknowledge_review?}` | `{text, chars}`: the checked copy's readable text (body, headers and footers, notes, pictures' text; tables as tab-separated rows) |
+| `text.protect` | no (browser extension bridge) | `{text (≤ 200,000 characters), profile_id?, ner?: bool}` | `{text, changed, blocked, actions{MASK, REDACT, GENERALIZE, BLOCK, ALLOW}, findings[{entity_type, entity_label, category, preview, action}] (at most 200 listed), profile{id, name}, ner}`. Same detectors, company rules, allow-list and profile as a document; every protected value is replaced, including repeats the detectors did not flag. Items the profile blocks cannot be shared as they are, so they are redacted and counted in `blocked`. The text is never stored or logged (Phase 11) |
 | `export.prepare` | no (host only) | `{artifact_id, as_text?, acknowledge_review?}` | `{file_name, extension, filter_label}` for the native save dialog |
 | `export.save` | no (host only) | `{artifact_id, destination, as_text?, acknowledge_review?}` | `{ok, file_name, size_bytes}`. Atomic write; refuses the original file, Airlock's own folders, links and other extensions |
 | `profiles.list` | yes | `{}` | `{profiles[], default_id, entity_types[], actions[], mask_styles[]}`; each profile lists `{action, source, style}` for every entity type |
@@ -182,10 +183,42 @@ The engine's stderr carries JSON log records with allowlisted keys only (see
 independent allowlist check (`logsink.rs`). Anything else, such as tracebacks
 or library output, is dropped and only counted.
 
-## V2: browser extension
+## Browser extension bridge (Phase 11)
 
-Chrome and Edge native messaging use stdio with 32-bit length-prefixed frames.
-The planned design runs a tiny native-messaging host that forwards to the
-running desktop agent over a per-user named pipe with an ACL restricted to the
-current user. The detection engine stays in the agent; the extension never
-holds it, and nothing goes to a cloud service.
+Chrome and Edge start the engine themselves for the Airlock extension
+(native messaging, host name `com.airlock.engine`). The browser passes the
+extension's origin (`chrome-extension://<id>/`) as the first argument; the
+engine then serves the same JSON-RPC 2.0 messages, framed the browser's way:
+
+* each message is a 32-bit **little-endian** length followed by that many
+  bytes of UTF-8 JSON, in both directions;
+* messages to the engine are limited to 4 MB, answers to 1 MB (the browser's
+  limit; a larger answer becomes error `-32002`).
+
+Only `system.hello`, `system.health`, `profiles.list` and `text.protect` are
+reachable; anything else is `-32601`. The engine exits at once (code 2,
+logged as `bridge_origin_refused`) unless the origin is the Airlock
+extension's: the browser checks the same list (`allowed_origins` in the host
+manifest), so both sides enforce it. No method on the bridge takes a path,
+and no text sent over it is stored.
+
+The engine uses the same per-user data folder as the desktop app, so company
+rules, profiles and "not sensitive" decisions apply in the browser too. The
+desktop app does not need to be running. The extension closes the
+connection after 5 idle minutes, and the engine exits when it closes.
+
+Host manifest (`apps/desktop/src-tauri/windows/native-messaging-host.json`,
+installed next to the app; registry key
+`Software\{Google\Chrome,Microsoft\Edge}\NativeMessagingHosts\com.airlock.engine`
+under HKCU or HKLM, matching the install mode):
+
+```json
+{"name": "com.airlock.engine", "type": "stdio",
+ "path": "engine\\airlock-engine.exe",
+ "allowed_origins": ["chrome-extension://cbihflandcpahjbogbficbpidmpdgcce/"]}
+```
+
+Inside the extension, pages talk only to their own service worker
+(`chrome.runtime.sendMessage` with `{type: status | profiles | protect}`); the
+worker answers only the extension's own pages and is the only part that opens
+the native port. See [apps/extension/README.md](../apps/extension/README.md).

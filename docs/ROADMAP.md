@@ -16,7 +16,7 @@ done when its exit criteria pass on a real run, not when it compiles.
 | 8 | Windows packaging (in progress) | PyInstaller onedir engine, NSIS installer, WebView2 strategy, code signing, firewall rule option, tauri-driver E2E on Windows, clean-VM DoD run | |
 | 9 | ~~Right-click integration~~ | Skipped by decision (2026-10-05): files are opened by drag-and-drop or Browse in every surface | ⏭ Skipped |
 | 10 | Lifetime licensing | Ed25519 signed licences, offline import, online activation (isolated from the engine), local verification | ✅ Done |
-| 11 | Browser extension foundation | MV3 extension for Chrome and Edge. Uses the local app's engine through native messaging when it is installed, otherwise the in-browser engine from Phase 14 | |
+| 11 | Browser extension foundation | MV3 extension for Chrome and Edge. Uses the local app's engine through native messaging when it is installed, otherwise the in-browser engine from Phase 14 (fallback added in Phase 14) | ✅ Done |
 | 12 | Reversible masking & response restoration (queued) | Session/conversation-scoped mapping vault, stable `PERSON_001`-style pseudonyms, local restoration of AI responses (review before restore), outbound privacy check, prompt and clipboard protection, provider-neutral AI adapter layer. Requirements: [REVERSIBLE_MASKING.md](REVERSIBLE_MASKING.md) | |
 | 13 | Local web app | The installed engine serves the same UI to the user's own browser on a loopback address: 127.0.0.1 only, random port, per-launch secret, Host and Origin checks, the same method allowlist as the desktop host. No document leaves the computer | |
 | 14 | Web app (in the browser) | A static website where the engine runs inside the user's browser (WebAssembly in a Web Worker). Files are never uploaded; the site works offline after the first visit. Measure and document what is lighter than the desktop app (language model, OCR, very large files) | |
@@ -31,7 +31,7 @@ user's own device and are never uploaded; there is no cloud processing.
 | Local app (desktop) | Bundled Python engine, child process of the app | Tauri host, stdio JSON-RPC (no socket) | 1-8 (1-7 done) |
 | Local web app | Same installed engine | User's browser → loopback HTTP with a per-launch secret | 13 |
 | Web app | Inside the user's browser (WebAssembly, Web Worker) | In-page messages; the website only serves static files | 14 |
-| Browser extension | Local app's engine (native messaging) or the in-browser engine | Extension pages | 11 |
+| Browser extension | Local app's engine (native messaging); the in-browser engine from Phase 14 | Extension pages | 11 (native messaging done) |
 
 The React UI is shared: each surface supplies its own `Platform`
 implementation (`apps/desktop/src/engine/platform.ts`), as the desktop app
@@ -338,9 +338,18 @@ restoring AI responses (Phase 12).
   engine process.
 * Signing is wired (`AIRLOCK_SIGN_COMMAND`, CI secrets) but needs a
   certificate; builds without one are unsigned and say so.
-* Remaining: the Windows `Package` workflow run (build, install, check,
-  uninstall on a fresh runner) and the clean-VM check in
-  [PACKAGING.md](PACKAGING.md).
+* Windows (`Package` workflow, `windows-latest`): the frozen engine passed
+  its smoke test, both installers were built, and the installer smoke test
+  passed: silent all-users install (413 MB), both firewall rules present
+  (inbound and outbound block), the installed engine passed the smoke test
+  (language model, OCR, PDF, every copy verified), the installed app logged
+  `engine_ready` (integrity check passed), no engine process remained after
+  closing, and the silent uninstall removed the files and rules. A first run
+  failed on `notices.py` reading cargo's UTF-8 output as cp1252 (fixed).
+* Remaining: a tauri-driver (WebDriver) UI run on Windows (drop a file
+  through a simulated `tauri://drag-drop` event, scan, create and verify a
+  copy, Copy Text for AI, check the clipboard and the log) and the clean-VM
+  check in [PACKAGING.md](PACKAGING.md).
 
 ## Phase 10 verification log
 
@@ -373,3 +382,47 @@ restoring AI responses (Phase 12).
   next start, while scanning stayed available. A bug found on the way: the
   activation request went through the environment's proxy even for a
   loopback server; loopback URLs now bypass it.
+
+## Phase 11 verification log
+
+* Design change from the earlier V2 note (a small host forwarding to the
+  running desktop app over a named pipe): the browser starts the installed
+  engine itself as the native-messaging host. No pipe, no socket, and the
+  desktop app does not need to be running. The engine recognises the
+  extension origin as its first argument, refuses any other origin, and
+  serves four methods (`system.hello`, `system.health`, `profiles.list`,
+  `text.protect`) with the browser's framing. It uses the app's data folder,
+  so company rules, profiles and "not sensitive" decisions apply.
+* `text.protect` runs the document pipeline on one text: detectors, company
+  rules, allow-list, profile, replacements and the value sweep. Passwords,
+  keys and tokens are removed and reported (there is no "fix first" step for
+  a snippet). Text is never stored; the log records counts and size only.
+* Extension (`apps/extension`, MV3): popup to paste, protect and copy;
+  right-click "Protect selected text with Airlock". CSP `connect-src 'none'`,
+  no host permissions, no content scripts; the service worker answers only
+  the extension's own pages. A fixed manifest key gives the ID the engine
+  and the installer's host manifest accept (a test checks all three agree).
+  The installer registers the host for Chrome and Edge (HKCU or HKLM) and
+  removes it on uninstall.
+* Tests: engine 7 (`test_bridge.py`: framing, origin refusal, method
+  allowlist, size limits, the real engine started as a host, company rules,
+  allow-list, no values in results or logs), extension 10 (`node --test`,
+  in CI).
+* Real run (Linux, Chromium 141 with the unpacked extension, development
+  engine registered by `scripts/register_host.py`): the popup showed
+  "Checking on this computer" and the three profiles; a prompt with a name,
+  an e-mail, a password, an API key and a phone number came back as
+  `[PERSON_1]`, `[EMAIL_1]`, `[REDACTED]`, `[REDACTED]`, `[PHONE_1]` with
+  "5 items found … 2 passwords, keys or tokens could not be shared and were
+  removed"; none of the values was in the output; Copy put exactly the
+  protected text on the clipboard (pasted back to compare); a right-clicked
+  selection reached the popup and was cleared from session storage.
+* Found on the way: the service worker first rejected the popup when opened
+  in a tab (it checked `sender.tab`); it now checks the sender's ID and URL.
+  An open native port keeps the worker, and so the engine with its language
+  model, alive for the whole browser session; the connection now closes
+  after 5 idle minutes and the engine exits (checked in Chromium).
+* Not done here: publishing to the Chrome Web Store and Edge Add-ons (the
+  release IDs then join the allowed origins) and a run with the Windows
+  installer and Edge.
+

@@ -1,0 +1,7 @@
+{
+  "name": "com.airlock.engine",
+  "description": "Airlock privacy engine: protects text for the Airlock browser extension, on this computer.",
+  "path": "engine\\airlock-engine.exe",
+  "type": "stdio",
+  "allowed_origins": ["chrome-extension://cbihflandcpahjbogbficbpidmpdgcce/"]
+}

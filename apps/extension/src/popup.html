@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Airlock</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header class="head">
+      <img src="../icons/32.png" alt="" width="20" height="20" />
+      <span class="wordmark">AIRLOCK</span>
+      <span id="status" class="status" data-tone="wait" role="status">Connecting…</span>
+    </header>
+
+    <label for="input" class="label">Text to protect</label>
+    <textarea id="input" rows="7" spellcheck="false" placeholder="Paste a prompt, an e-mail or any text…"></textarea>
+
+    <div class="row">
+      <select id="profile" aria-label="Privacy profile"></select>
+      <button id="protect" class="primary" type="button" disabled>Protect</button>
+    </div>
+
+    <div id="error" class="notice" role="alert" hidden>
+      <p id="error-message" class="notice__title"></p>
+      <p id="error-next" class="notice__body"></p>
+    </div>
+
+    <section id="result" hidden aria-labelledby="result-title">
+      <h2 id="result-title" class="label">Protected text</h2>
+      <p id="summary" class="summary"></p>
+      <textarea id="output" rows="7" readonly aria-labelledby="result-title"></textarea>
+      <button id="copy" class="primary" type="button">Copy Protected Text</button>
+      <ul id="findings" class="findings" aria-label="What Airlock found"></ul>
+    </section>
+
+    <footer class="foot">Checked on this computer by the Airlock app. Nothing is sent anywhere.</footer>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
