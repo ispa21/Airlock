@@ -15,18 +15,31 @@
     5. The installed app starts and its host completes the engine handshake
        (the host checks the engine's SHA-256 first).
     6. Closing the app leaves no engine process behind.
-    7. The silent uninstall removes the files, the firewall rules and the
+    7. With -TauriDriver: the UI end-to-end test on the installed app
+       (scripts/desktop_e2e.py through tauri-driver and the msedgedriver
+       matching the WebView2 runtime): drop a file, scan, create and verify
+       a copy, Copy Text for AI, check the clipboard and the log, kill the
+       engine and recover, close the window with no process left.
+    8. The silent uninstall removes the files, the firewall rules and the
        browser registrations.
 
 .PARAMETER Installer
   Path to Airlock_<version>_x64-setup.exe.
+
+.PARAMETER TauriDriver
+  Path to tauri-driver.exe (cargo install tauri-driver). Without it the UI
+  test is skipped.
 #>
-param([Parameter(Mandatory = $true)][string]$Installer)
+param(
+  [Parameter(Mandatory = $true)][string]$Installer,
+  [string]$TauriDriver
+)
 
 $ErrorActionPreference = "Stop"
 $rule = "Airlock privacy engine (no network)"
 $dir = Join-Path $env:ProgramFiles "Airlock"
 $repo = Resolve-Path (Join-Path $PSScriptRoot "..\..")
+$temp = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { $env:TEMP }
 
 function Step($text) { Write-Host "`n== $text" }
 
@@ -69,7 +82,7 @@ $rules | ForEach-Object { Write-Host "$($_.Direction) $($_.Action) $($_.Enabled)
 Step "Installed engine smoke test"
 Push-Location (Join-Path $repo "engine")
 try {
-  uv run python packaging/smoke.py $engine (Join-Path $env:RUNNER_TEMP "airlock-smoke")
+  uv run python packaging/smoke.py $engine (Join-Path $temp "airlock-smoke")
   if ($LASTEXITCODE -ne 0) { throw "engine smoke test failed" }
 } finally { Pop-Location }
 
@@ -111,6 +124,19 @@ for ($i = 0; $i -lt 15 -and $left; $i++) {
   $left = [bool](Get-Process -Name "airlock-engine" -ErrorAction SilentlyContinue)
 }
 if ($left) { throw "airlock-engine is still running after the app closed" }
+
+if ($TauriDriver) {
+  Step "UI end to end through WebDriver (tauri-driver)"
+  $edgeDriver = & (Join-Path $PSScriptRoot "edgedriver.ps1") -Destination (Join-Path $temp "msedgedriver")
+  Push-Location (Join-Path $repo "engine")
+  try {
+    uv run python ../scripts/desktop_e2e.py --app $app.FullName --log $log `
+      --driver $TauriDriver --native-driver $edgeDriver --work (Join-Path $temp "airlock-e2e")
+    if ($LASTEXITCODE -ne 0) { throw "UI end-to-end test failed" }
+  } finally { Pop-Location }
+} else {
+  Write-Host "`n(UI end-to-end test skipped: no -TauriDriver)"
+}
 
 Step "Uninstall (silent)"
 $uninstaller = Join-Path $dir "uninstall.exe"

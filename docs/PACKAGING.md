@@ -56,8 +56,23 @@ all-users install, firewall rules present, the installed engine passes the
 smoke test, Chrome and Edge are registered and the engine answers as the
 extension's native-messaging host (`engine/packaging/bridge_smoke.py`), the
 installed app completes the engine handshake, no engine process is left after
-closing, and the silent uninstall removes the files, the rules and the browser
-registrations.
+closing, the UI end-to-end test passes on the installed app (below), and the
+silent uninstall removes the files, the rules and the browser registrations.
+
+The UI end-to-end test (`scripts/desktop_e2e.py`, standard library only)
+drives the installed app through WebDriver: `tauri-driver` (built in the
+workflow with `cargo install`) and the `msedgedriver` that matches the
+runner's WebView2 runtime (`packaging/windows/edgedriver.ps1`; a test tool,
+never shipped). WebDriver cannot drag files from the desktop, so the page
+emits the window's own `tauri://drag-drop` event with `{paths, position}`.
+The test then scans, creates the protected copy, waits for its check to
+pass, clicks Copy Text for AI and reads the clipboard with `Get-Clipboard`
+(placeholders, none of the values), checks that the original is unchanged
+and that the log has the expected events and no values or file name, kills
+`airlock-engine.exe` and scans again (the host restarts it: `engine_exited`,
+a second `engine_ready`), and finally closes the window with WM_CLOSE: the
+app exits, the host logs `engine_stopped` and no engine process is left.
+To run it on a test VM, pass `-TauriDriver <path>` to `installer-smoke.ps1`.
 
 ## WebView2
 

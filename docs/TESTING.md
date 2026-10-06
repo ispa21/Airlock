@@ -19,7 +19,7 @@ property.
 | Host | `cargo test` | Supervisor against the real engine and against fake engines (crash, restart budget, incompatible handshake, timeout, missing binary); RPC error mapping; log allowlist; UI method allowlist. |
 | UI | vitest + Testing Library | Drop/browse/inspect flow, error explanation, multi-file handling, engine unavailable/retry, never claiming local processing without network isolation. |
 | Browser extension | `node --test` (apps/extension) + pytest (`test_bridge.py`) | Bridge: JSON-RPC matching, notifications ignored, error mapping, "app not found" vs "connection closed", timeouts, idle disconnect and reconnect; popup text. Engine side: native-messaging framing, origin refusal, method allowlist, size limits, `text.protect` (placeholders, blocked secrets removed, repeats swept, company rules and allow-list applied, nothing logged), and the extension ID derived from the manifest key. Real run: Chromium with the unpacked extension and the registered development engine. |
-| Desktop end to end | Real app under Xvfb on Linux (dev); **tauri-driver/WebDriver on `windows-latest`** (Phase 8) | Launch, engine handshake, real file dialogs, crash recovery, graceful shutdown, no orphan processes, log contents. |
+| Desktop end to end | `scripts/desktop_e2e.py` through tauri-driver: the installed app on `windows-latest` (WebView2, msedgedriver; `Package` workflow) and a development build on Linux (WebKitWebDriver, Xvfb) | Launch and engine handshake, file drop (`tauri://drag-drop`), scan, protected copy and its check, Copy Text for AI with the system clipboard read back, original unchanged, log events present and no values, engine killed and restarted, window closed with no process left. |
 | Release acceptance | Scripted checklist on a clean Windows VM | PRD §36 Definition of Done, Wi-Fi disabled. |
 
 ## Synthetic data policy
@@ -139,4 +139,17 @@ cd apps/extension && npm test
 
 # offline (Linux): the whole engine suite with no network at all
 unshare -rn bash -c 'ip link set lo up; cd engine && .venv/bin/python -m pytest'
+
+# desktop end to end (Linux): needs webkit2gtk-driver, xclip, Xvfb and
+# `cargo install tauri-driver --locked`; a debug build runs engine/.venv
+(cd apps/desktop && npm run build && cd src-tauri && cargo build --features tauri/custom-protocol)
+xvfb-run -a dbus-run-session -- python3 scripts/desktop_e2e.py \
+  --app apps/desktop/src-tauri/target/debug/airlock-desktop \
+  --log ~/.local/share/com.airlock.desktop/logs/airlock.log
 ```
+
+On Windows the same script runs on the installed app from
+`packaging/windows/installer-smoke.ps1 -TauriDriver <path>` (see
+[PACKAGING.md](PACKAGING.md)). Under Xvfb there is no window manager, so the
+Linux run ends the app with SIGTERM instead of closing its window; the
+engine must still exit.
