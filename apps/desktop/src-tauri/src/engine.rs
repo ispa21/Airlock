@@ -375,8 +375,12 @@ impl Engine {
     }
 
     fn ensure_running(&self, state: &mut Option<Running>) -> Result<(), EngineError> {
-        if let Some(running) = state.as_ref() {
-            if running.alive.load(Ordering::SeqCst) {
+        if let Some(running) = state.as_mut() {
+            // The reader thread marks the engine dead when its output closes,
+            // which can lag behind the exit; an engine that died between
+            // requests is restarted here instead of failing the next request.
+            let exited = matches!(running.child.try_wait(), Ok(Some(_)));
+            if running.alive.load(Ordering::SeqCst) && !exited {
                 return Ok(());
             }
             self.log.host_event("engine_exited", &[]);
@@ -686,6 +690,36 @@ for line in sys.stdin:
             .unwrap_err();
         assert_eq!(err.kind, "engine_failing");
         assert!(!lock(&seen).is_empty(), "notifications are forwarded");
+    }
+
+    /// A fake engine that answers every request.
+    const ECHO: &str = r#"
+import json, sys
+for line in sys.stdin:
+    msg = json.loads(line)
+    result = {"compatible": True, "engine_version": "test", "protocol_version": "1.0",
+              "network_isolation": True, "methods": []} if msg.get("method") == "system.hello" else {"ok": True}
+    print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": result}), flush=True)
+"#;
+
+    #[test]
+    fn an_engine_that_died_between_requests_is_restarted_not_reported() {
+        let Some(python) = venv_python() else { return };
+        let (engine, _) = engine_with(python_script(&python, ECHO));
+        engine.info().expect("engine starts");
+        {
+            // Killed while idle, before the reader thread has noticed.
+            let mut state = lock(&engine.state);
+            let running = state.as_mut().expect("running");
+            running.child.kill().unwrap();
+            running.child.wait().unwrap();
+            running.alive.store(true, Ordering::SeqCst);
+        }
+        let reply = engine
+            .call("x.y", json!({}), Duration::from_secs(10))
+            .expect("the next request starts a new engine");
+        assert_eq!(reply["ok"], true);
+        engine.shutdown();
     }
 
     #[test]

@@ -15,13 +15,25 @@
     5. The installed app starts and its host completes the engine handshake
        (the host checks the engine's SHA-256 first).
     6. Closing the app leaves no engine process behind.
-    7. The silent uninstall removes the files, the firewall rules and the
+    7. With -TauriDriver: the interface end to end through WebDriver
+       (engine/packaging/ui_e2e.py): drop a file, scan, create and check a
+       protected copy, Copy Text for AI, engine crash recovery, clean exit,
+       content-free log.
+    8. The silent uninstall removes the files, the firewall rules and the
        browser registrations.
 
 .PARAMETER Installer
   Path to Airlock_<version>_x64-setup.exe.
+.PARAMETER TauriDriver
+  Optional path to tauri-driver.exe; enables check 7.
+.PARAMETER NativeDriver
+  Path to msedgedriver.exe matching the installed WebView2 (with -TauriDriver).
 #>
-param([Parameter(Mandatory = $true)][string]$Installer)
+param(
+  [Parameter(Mandatory = $true)][string]$Installer,
+  [string]$TauriDriver,
+  [string]$NativeDriver
+)
 
 $ErrorActionPreference = "Stop"
 $rule = "Airlock privacy engine (no network)"
@@ -111,6 +123,16 @@ for ($i = 0; $i -lt 15 -and $left; $i++) {
   $left = [bool](Get-Process -Name "airlock-engine" -ErrorAction SilentlyContinue)
 }
 if ($left) { throw "airlock-engine is still running after the app closed" }
+
+if ($TauriDriver) {
+  Step "Interface end to end (WebDriver)"
+  Push-Location (Join-Path $repo "engine")
+  try {
+    uv run python packaging/ui_e2e.py --app $app.FullName --tauri-driver $TauriDriver `
+      --native-driver $NativeDriver --work (Join-Path $env:RUNNER_TEMP "airlock-ui")
+    if ($LASTEXITCODE -ne 0) { throw "interface end-to-end test failed" }
+  } finally { Pop-Location }
+}
 
 Step "Uninstall (silent)"
 $uninstaller = Join-Path $dir "uninstall.exe"

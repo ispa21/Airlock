@@ -85,9 +85,31 @@ jobs:
           path: apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
           if-no-files-found: error
 
-      - name: Install, check and uninstall
+      - name: WebDriver tools (tauri-driver, msedgedriver for this WebView2)
+        shell: pwsh
+        run: |
+          cargo install tauri-driver --locked
+          $key = "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+          $version = (Get-ItemProperty $key -ErrorAction SilentlyContinue).pv
+          if (-not $version) {
+            $version = (Get-Item "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe").VersionInfo.ProductVersion
+          }
+          Write-Host "WebView2 $version"
+          $zip = Join-Path $env:RUNNER_TEMP "edgedriver.zip"
+          try {
+            Invoke-WebRequest "https://msedgedriver.microsoft.com/$version/edgedriver_win64.zip" -OutFile $zip
+          } catch {
+            Invoke-WebRequest "https://msedgedriver.azureedge.net/$version/edgedriver_win64.zip" -OutFile $zip
+          }
+          $dir = Join-Path $env:RUNNER_TEMP "edgedriver"
+          Expand-Archive $zip -DestinationPath $dir -Force
+          "AIRLOCK_TAURI_DRIVER=$env:USERPROFILE\.cargo\bin\tauri-driver.exe" >> $env:GITHUB_ENV
+          "AIRLOCK_NATIVE_DRIVER=$dir\msedgedriver.exe" >> $env:GITHUB_ENV
+
+      - name: Install, check, drive the interface and uninstall
         shell: pwsh
         run: |
           $installer = Get-ChildItem apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe |
             Where-Object { $_.Name -notmatch "offline" } | Select-Object -First 1
-          ./packaging/windows/installer-smoke.ps1 -Installer $installer.FullName
+          ./packaging/windows/installer-smoke.ps1 -Installer $installer.FullName `
+            -TauriDriver $env:AIRLOCK_TAURI_DRIVER -NativeDriver $env:AIRLOCK_NATIVE_DRIVER

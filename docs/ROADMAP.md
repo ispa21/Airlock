@@ -346,10 +346,22 @@ restoring AI responses (Phase 12).
   `engine_ready` (integrity check passed), no engine process remained after
   closing, and the silent uninstall removed the files and rules. A first run
   failed on `notices.py` reading cargo's UTF-8 output as cp1252 (fixed).
-* Remaining: a tauri-driver (WebDriver) UI run on Windows (drop a file
-  through a simulated `tauri://drag-drop` event, scan, create and verify a
-  copy, Copy Text for AI, check the clipboard and the log) and the clean-VM
-  check in [PACKAGING.md](PACKAGING.md).
+* Interface end to end (`engine/packaging/ui_e2e.py`, tauri-driver): the
+  installed app is driven through WebDriver; a file arrives through the
+  window's own `tauri://drag-drop` event, is scanned, protected and checked;
+  Copy Text for AI is read back from the clipboard (placeholders, no
+  values); the engine is killed while idle and the next scan still works;
+  closing the window quits the app with no engine left; the original is
+  unchanged and the log holds no file name, path or value. Passed 8 runs in
+  a row on Linux (WebKitWebDriver, release build with the frozen engine).
+* Found by that test: after the engine died between requests, the host could
+  send the next request to the dead engine (it relied only on the reader
+  thread noticing the closed output) and report "stopped unexpectedly". It
+  now also checks the process's exit status first and restarts at once (new
+  host test). A test-side race was also fixed: a killed multi-threaded
+  process shows as a zombie before all its threads are gone.
+* Remaining: the clean-VM check in [PACKAGING.md](PACKAGING.md) (manual,
+  before a release).
 
 ## Phase 10 verification log
 

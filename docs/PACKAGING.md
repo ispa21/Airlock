@@ -56,7 +56,9 @@ all-users install, firewall rules present, the installed engine passes the
 smoke test, Chrome and Edge are registered and the engine answers as the
 extension's native-messaging host (`engine/packaging/bridge_smoke.py`), the
 installed app completes the engine handshake, no engine process is left after
-closing, and the silent uninstall removes the files, the rules and the browser
+closing, the interface passes the WebDriver test (`engine/packaging/ui_e2e.py`
+with tauri-driver and the msedgedriver matching the runner's WebView2), and
+the silent uninstall removes the files, the rules and the browser
 registrations.
 
 ## WebView2
